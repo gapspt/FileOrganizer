@@ -4,6 +4,7 @@ using System.Globalization;
 
 namespace PhotoOrganizer
 {
+    // TODO: Use SixLabors to read the metadata, thus reading the file only once
     public static class ImageMetadataUtils
     {
         public static bool TryGetDateTaken(string path, out DateTime dateTaken)
