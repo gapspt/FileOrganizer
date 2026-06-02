@@ -1,10 +1,16 @@
 ﻿namespace PhotoOrganizer
 {
-    public static class ObjectPool<T> where T : new()
+    public class ObjectPool<T>
     {
-        static readonly List<T> pool = new();
+        readonly List<T> pool = new();
+        readonly Func<T> constructor;
 
-        public static T Get()
+        public ObjectPool(Func<T> constructor)
+        {
+            this.constructor = constructor;
+        }
+
+        public T Get()
         {
             lock (pool)
             {
@@ -16,15 +22,23 @@
                     return result;
                 }
             }
-            return new T();
+            return constructor();
         }
 
-        public static void Return(T obj)
+        public void Return(T obj)
         {
             lock (pool)
             {
                 pool.Add(obj);
             }
         }
+    }
+
+    public static class SimpleObjectPool<T> where T : new()
+    {
+        static readonly ObjectPool<T> pool = new(() => new T());
+
+        public static T Get() => pool.Get();
+        public static void Return(T obj) => pool.Return(obj);
     }
 }

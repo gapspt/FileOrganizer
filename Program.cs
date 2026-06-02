@@ -97,7 +97,7 @@ static class Program
     {
         string fileName = file.Name;
 
-        if (IsAbsoluteMatch(regexGooglePixelPhoto, fileName))
+        if (IsMatch(regexGooglePixelPhoto, fileName))
         {
             return fileName.Substring(4, 4); // "PXL_20230123_123456789.jpg" -> "2023"
         }
@@ -117,7 +117,7 @@ static class Program
         return null;
     }
 
-    static bool IsAbsoluteMatch(Regex r, string s)
+    static bool IsMatch(Regex r, string s)
     {
         var m = r.Match(s);
         return m.Success && m.Length == s.Length;

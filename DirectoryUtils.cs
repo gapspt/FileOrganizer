@@ -6,7 +6,7 @@ namespace PhotoOrganizer
     {
         public static async ValueTask ApplyToAllFilesAsync(DirectoryInfo dir, Func<FileInfo, ValueTask> action, bool recursive = false)
         {
-            var tasks = ObjectPool<List<Task<ValueTask>>>.Get();
+            var tasks = SimpleObjectPool<List<Task<ValueTask>>>.Get();
 
             foreach (var f in dir.EnumerateFiles())
             {
@@ -27,7 +27,7 @@ namespace PhotoOrganizer
             }
 
             tasks.Clear();
-            ObjectPool<List<Task<ValueTask>>>.Return(tasks);
+            SimpleObjectPool<List<Task<ValueTask>>>.Return(tasks);
         }
         public static async ValueTask ApplyToAllFilesAsync(string path, Func<FileInfo, ValueTask> action, bool recursive = false)
             => await ApplyToAllFilesAsync(new DirectoryInfo(path), action, recursive);
