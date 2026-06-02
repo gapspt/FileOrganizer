@@ -1,57 +1,125 @@
-﻿using PhotoOrganizer;
+﻿using System.Text.RegularExpressions;
 
-string path = Directory.GetCurrentDirectory();
-bool recursive = false;
+namespace PhotoOrganizer;
 
-ParseArguments();
-
-await DirectoryUtils.ApplyToAllFilesAsync(path, ProcessFile, recursive);
-
-void ParseArguments()
+static class Program
 {
-    bool pathArg = false;
+    static string srcDirectory = Directory.GetCurrentDirectory();
+    static string dstDirectory = srcDirectory;
+    static bool recursive = false;
 
-    foreach (var arg in args)
+    static async Task Main(string[] args)
     {
-        if (arg.StartsWith('-'))
+        ParseArguments(args);
+
+        await DirectoryUtils.ApplyToAllFilesAsync(srcDirectory, ProcessFile, recursive);
+    }
+
+    static void ParseArguments(string[] args)
+    {
+        bool srcArg = false;
+        bool dstArg = false;
+
+        foreach (var arg in args)
         {
-            switch (arg)
+            if (arg.StartsWith('-'))
             {
-                case "--recursive" or "-r":
-                    recursive = true;
-                    break;
-                default:
-                    Console.Error.WriteLine($"Unknown argument: {arg}");
-                    return;
+                switch (arg)
+                {
+                    case "--recursive" or "-r":
+                        recursive = true;
+                        break;
+                    default:
+                        Console.Error.WriteLine($"Unknown argument: {arg}");
+                        return;
+                }
+                continue;
             }
-            continue;
-        }
 
-        if (!pathArg)
-        {
-            pathArg = true;
-            path = arg;
-            continue;
-        }
+            if (!srcArg)
+            {
+                srcArg = true;
+                srcDirectory = dstDirectory = arg;
+                continue;
+            }
+            if (!dstArg)
+            {
+                dstArg = true;
+                dstDirectory = arg;
+                continue;
+            }
 
-        Console.Error.WriteLine($"Invalid argument: {arg}");
-        return;
+            Console.Error.WriteLine($"Invalid argument: {arg}");
+            return;
+        }
     }
-}
 
-static ValueTask ProcessFile(FileInfo info)
-{
-    try
+    static ValueTask ProcessFile(FileInfo file)
     {
-        if (ImageMetadataUtils.TryGetDateTaken(info.FullName, out var dateTaken))
-        {
-            Console.WriteLine($"{info.FullName} - Date taken: {dateTaken:yyyy-MM-dd HH:mm:ss}");
-        }
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine($"Error reading image metadata for '{info.FullName}': {ex.Message}");
+        MoveFileToSubDirectoryByYear(file);
+
+        return ValueTask.CompletedTask;
     }
 
-    return ValueTask.CompletedTask;
+    static void MoveFileToSubDirectoryByYear(FileInfo file)
+    {
+        try
+        {
+            string origPath = file.FullName;
+
+            string subDirName = GetPhotoYear(file) ?? "Unknown";
+            string newDirectoryPath = Path.Combine(dstDirectory, subDirName);
+            string newPath = Path.Combine(newDirectoryPath, file.Name);
+
+            if (newPath == origPath)
+            {
+                return;
+            }
+
+            if (Path.Exists(newPath))
+            {
+                Console.Error.WriteLine($"File already exists at destination: '{newPath}'");
+                return;
+            }
+
+            Directory.CreateDirectory(newDirectoryPath);
+            file.MoveTo(newPath);
+            Console.WriteLine($"Moved file '{origPath}' to '{newPath}'");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error processing file '{file.FullName}': {ex.Message}");
+        }
+    }
+
+    static readonly Regex regexGooglePixelPhoto = new(@"\APXL_\d{8}_\d{9}\.jpg\z");
+    static string? GetPhotoYear(FileInfo file)
+    {
+        string fileName = file.Name;
+
+        if (IsAbsoluteMatch(regexGooglePixelPhoto, fileName))
+        {
+            return fileName.Substring(4, 4); // "PXL_20230123_123456789.jpg" -> "2023"
+        }
+
+        try
+        {
+            if (ImageMetadataUtils.TryGetDateTaken(file.FullName, out var dateTaken))
+            {
+                return $"{dateTaken.Year}";
+            }
+        }
+        catch
+        {
+            // Ignored
+        }
+
+        return null;
+    }
+
+    static bool IsAbsoluteMatch(Regex r, string s)
+    {
+        var m = r.Match(s);
+        return m.Success && m.Length == s.Length;
+    }
 }
