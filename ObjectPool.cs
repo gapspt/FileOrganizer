@@ -1,6 +1,8 @@
-﻿namespace PhotoOrganizer
+﻿using System.Diagnostics;
+
+namespace PhotoOrganizer
 {
-    public class ObjectPool<T>
+    public class ObjectPool<T> where T : class
     {
         readonly List<T> pool = new();
         readonly Func<T> constructor;
@@ -27,18 +29,28 @@
 
         public void Return(T obj)
         {
+            Debug.Assert(obj != null);
             lock (pool)
             {
                 pool.Add(obj);
             }
         }
+
+        public void ReturnIfNotNull(T? obj)
+        {
+            if (obj != null)
+            {
+                Return(obj);
+            }
+        }
     }
 
-    public static class SimpleObjectPool<T> where T : new()
+    public static class SimpleObjectPool<T> where T : class, new()
     {
         static readonly ObjectPool<T> pool = new(() => new T());
 
         public static T Get() => pool.Get();
         public static void Return(T obj) => pool.Return(obj);
+        public static void ReturnIfNotNull(T? obj) => pool.ReturnIfNotNull(obj);
     }
 }
