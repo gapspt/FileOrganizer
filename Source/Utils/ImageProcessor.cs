@@ -6,6 +6,19 @@ namespace PhotoOrganizer
 {
     public static class ImageProcessor
     {
+        public static async ValueTask<bool> IsImage(string path)
+        {
+            try
+            {
+                var format = await Image.DetectFormatAsync(path);
+                return format != null;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         public static async ValueTask GetImageResized(string path, Rgba32[] pixels, ResizeOptions resizeOptions)
         {
             using var image = await Image.LoadAsync<Rgba32>(path);

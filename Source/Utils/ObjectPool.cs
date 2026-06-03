@@ -43,6 +43,17 @@ namespace PhotoOrganizer
                 Return(obj);
             }
         }
+
+        public void Clear()
+        {
+            lock (pool)
+            {
+                if (pool.Count > 0)
+                {
+                    pool.Clear();
+                }
+            }
+        }
     }
 
     public static class SimpleObjectPool<T> where T : class, new()
