@@ -76,16 +76,9 @@ class OrganizeImagesCommand
             return fileName.Substring(4, 4); // "PXL_20230123_123456789.jpg" -> "2023"
         }
 
-        try
+        if (ImageMetadataUtils.TryGetDateTaken(file.FullName, out var dateTaken))
         {
-            if (ImageMetadataUtils.TryGetDateTaken(file.FullName, out var dateTaken))
-            {
-                return $"{dateTaken.Year}";
-            }
-        }
-        catch
-        {
-            // Ignored
+            return $"{dateTaken.Year}";
         }
 
         return null;

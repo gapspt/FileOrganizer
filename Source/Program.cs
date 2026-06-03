@@ -42,6 +42,8 @@ static class Program
             if (++argIndex >= args.Length)
             {
                 Console.Error.WriteLine($"Invalid value for {args[argIndex - 1]}: no value provided");
+                value = default;
+                return false;
             }
             if (!int.TryParse(args[argIndex], out value) || value < min || value > max)
             {

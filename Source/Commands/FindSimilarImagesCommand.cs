@@ -69,22 +69,20 @@ class FindSimilarImagesCommand
                 return;
             }
 
-            Rgba32 p = default;
-
             // Set fully transparent pixels' RGB values to zero
             for (int i = 0; i < sizeSamples; i++)
             {
-                p = pixels[i];
-                if (p.A == 0)
+                if (pixels[i].A == 0)
                 {
-                    p.Rgb = new(0, 0, 0);
+                    pixels[i] = new(0, 0, 0, 0);
                 }
             }
 
             Rgba32 p0 = pixels[0];
+            Rgba32 p1 = pixels[sizeSamples - 1];
 
             int r0 = p0.R / partitionsSize, g0 = p0.G / partitionsSize, b0 = p0.B / partitionsSize;
-            int r1 = p.R / partitionsSize, g1 = p.G / partitionsSize, b1 = p.B / partitionsSize;
+            int r1 = p1.R / partitionsSize, g1 = p1.G / partitionsSize, b1 = p1.B / partitionsSize;
 
             matchingCandidates = SimpleObjectPool<List<(string, Rgba32[])>>.Get();
             lock (imagesPartitioned)

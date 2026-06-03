@@ -9,39 +9,46 @@ namespace PhotoOrganizer
     {
         public static bool TryGetDateTaken(string path, out DateTime dateTaken)
         {
-            var metadataDirs = ImageMetadataReader.ReadMetadata(path);
-            MetadataExtractor.Directory? metadataDir;
-
-            // 1) Exif SubIFD: Date/Time Original or Digitized
-            metadataDir = metadataDirs.OfType<ExifSubIfdDirectory>().FirstOrDefault();
-            if (metadataDir != null && (
-                TryParseExifDate(metadataDir.GetString(ExifDirectoryBase.TagDateTimeOriginal), out dateTaken) ||
-                TryParseExifDate(metadataDir.GetString(ExifDirectoryBase.TagDateTimeDigitized), out dateTaken)
-                ))
+            try
             {
-                return true;
-            }
+                var metadataDirs = ImageMetadataReader.ReadMetadata(path);
+                MetadataExtractor.Directory? metadataDir;
 
-            // 2) Exif IFD0: DateTime (general)
-            metadataDir = metadataDirs.OfType<ExifIfd0Directory>().FirstOrDefault();
-            if (metadataDir != null &&
-                TryParseExifDate(metadataDir.GetString(ExifDirectoryBase.TagDateTime), out dateTaken))
-            {
-                return true;
-            }
-
-            // 3) Fallback: any directory with common date tags
-            foreach (var md in metadataDirs)
-            {
-                metadataDir = md;
+                // 1) Exif SubIFD: Date/Time Original or Digitized
+                metadataDir = metadataDirs.OfType<ExifSubIfdDirectory>().FirstOrDefault();
                 if (metadataDir != null && (
                     TryParseExifDate(metadataDir.GetString(ExifDirectoryBase.TagDateTimeOriginal), out dateTaken) ||
-                    TryParseExifDate(metadataDir.GetString(ExifDirectoryBase.TagDateTimeDigitized), out dateTaken) ||
-                    TryParseExifDate(metadataDir.GetString(ExifDirectoryBase.TagDateTime), out dateTaken)
+                    TryParseExifDate(metadataDir.GetString(ExifDirectoryBase.TagDateTimeDigitized), out dateTaken)
                     ))
                 {
                     return true;
                 }
+
+                // 2) Exif IFD0: DateTime (general)
+                metadataDir = metadataDirs.OfType<ExifIfd0Directory>().FirstOrDefault();
+                if (metadataDir != null &&
+                    TryParseExifDate(metadataDir.GetString(ExifDirectoryBase.TagDateTime), out dateTaken))
+                {
+                    return true;
+                }
+
+                // 3) Fallback: any directory with common date tags
+                foreach (var md in metadataDirs)
+                {
+                    metadataDir = md;
+                    if (metadataDir != null && (
+                        TryParseExifDate(metadataDir.GetString(ExifDirectoryBase.TagDateTimeOriginal), out dateTaken) ||
+                        TryParseExifDate(metadataDir.GetString(ExifDirectoryBase.TagDateTimeDigitized), out dateTaken) ||
+                        TryParseExifDate(metadataDir.GetString(ExifDirectoryBase.TagDateTime), out dateTaken)
+                        ))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Ignored
             }
 
             dateTaken = default;

@@ -1,4 +1,5 @@
-﻿using SixLabors.ImageSharp;
+﻿using System.Diagnostics;
+using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
@@ -36,6 +37,7 @@ namespace PhotoOrganizer
 
         public static bool ArePixelsSimilar(Rgba32[] img1, Rgba32[] img2, int margin)
         {
+            Debug.Assert(img1.Length == img2.Length);
             for (int i = 0, len = img1.Length; i < len; i++)
             {
                 Rgba32 p1 = img1[i];
