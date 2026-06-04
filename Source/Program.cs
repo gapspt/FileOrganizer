@@ -2,8 +2,8 @@
 
 static class Program
 {
-    static string srcDirectory = Directory.GetCurrentDirectory();
-    static string dstDirectory = srcDirectory;
+    static string inDirectory = Directory.GetCurrentDirectory();
+    static string? outDirectory = null;
     static bool recursive = false;
     static int widthSamples = 16;
     static int heightSamples = 16;
@@ -25,12 +25,12 @@ static class Program
         switch (args[0])
         {
             case "organize":
-                return await new OrganizeImagesCommand(srcDirectory, dstDirectory, recursive).Run();
-            case "findsimilar":
+                return await new OrganizeImagesCommand(inDirectory, outDirectory ?? inDirectory, recursive).Run();
+            case "similar":
                 return await new FindSimilarImagesCommand(
-                    srcDirectory, recursive, widthSamples, heightSamples, pixelDifference).Run();
+                    inDirectory, outDirectory, recursive, widthSamples, heightSamples, pixelDifference).Run();
             default:
-                Console.Error.WriteLine("Invalid command. Available commands: organize | findsimilar");
+                Console.Error.WriteLine("Invalid command. Available commands: organize | similar");
                 return -1;
         }
     }
@@ -52,9 +52,19 @@ static class Program
             }
             return true;
         }
+        bool GetKeyValueString(ref int argIndex, out string value)
+        {
+            if (++argIndex >= args.Length)
+            {
+                Console.Error.WriteLine($"Invalid value for {args[argIndex - 1]}: no value provided");
+                value = "";
+                return false;
+            }
+            value = args[argIndex];
+            return true;
+        }
 
-        bool srcArg = false;
-        bool dstArg = false;
+        bool inArg = false;
         bool samplesArg = false;
 
         for (int i = 0; i < args.Length; i++)
@@ -67,6 +77,12 @@ static class Program
                 {
                     case "--recursive" or "-r":
                         recursive = true;
+                        continue;
+                    case "--outDirectory" or "-o":
+                        if (!GetKeyValueString(ref i, out outDirectory))
+                        {
+                            return false;
+                        }
                         continue;
                     case "--widthSamples" or "-w":
                         if (!ParseKeyValueInt(ref i, out widthSamples, 1, 64))
@@ -102,16 +118,10 @@ static class Program
                 return false;
             }
 
-            if (!srcArg)
+            if (!inArg)
             {
-                srcArg = true;
-                srcDirectory = dstDirectory = arg;
-                continue;
-            }
-            if (!dstArg)
-            {
-                dstArg = true;
-                dstDirectory = arg;
+                inArg = true;
+                inDirectory = arg;
                 continue;
             }
 
@@ -120,8 +130,8 @@ static class Program
         }
 
 #if DEBUG
-        Console.WriteLine($"srcDirectory={srcDirectory}");
-        Console.WriteLine($"dstDirectory={dstDirectory}");
+        Console.WriteLine($"inDirectory={inDirectory}");
+        Console.WriteLine($"outDirectory={outDirectory}");
         Console.WriteLine($"recursive={recursive}");
         Console.WriteLine($"widthSamples={widthSamples}");
         Console.WriteLine($"heightSamples={heightSamples}");

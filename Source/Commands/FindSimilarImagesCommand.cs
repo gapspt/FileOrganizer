@@ -7,7 +7,8 @@ namespace PhotoOrganizer;
 
 class FindSimilarImagesCommand
 {
-    readonly string dirPath;
+    readonly string srcDirPath;
+    readonly string? dstDirPath;
     readonly bool recursive;
     readonly int pixelDifference;
 
@@ -15,14 +16,17 @@ class FindSimilarImagesCommand
     readonly ResizeOptions thumbnailResizeOptions;
 
     readonly int partitionsSize;
-    readonly DimensionPartition<(string, Rgba32[])> imagesPartitioned;
+    readonly DimensionPartition<(string, Rgba32[])> imagesPartitioned = new();
 
-    readonly StringBuilder stringBuilder;
+    readonly HashSet<string> allSimilarImages = new();
+
+    readonly StringBuilder stringBuilder = new();
 
     public FindSimilarImagesCommand(
-        string dirPath, bool recursive, int widthSamples, int heightSamples, int pixelDifference)
+        string srcDirPath, string? dstDirPath, bool recursive, int widthSamples, int heightSamples, int pixelDifference)
     {
-        this.dirPath = dirPath;
+        this.srcDirPath = srcDirPath;
+        this.dstDirPath = dstDirPath;
         this.recursive = recursive;
         this.pixelDifference = pixelDifference;
 
@@ -36,14 +40,22 @@ class FindSimilarImagesCommand
         };
 
         partitionsSize = Math.Max(1, pixelDifference);
-        imagesPartitioned = new();
-
-        stringBuilder = new();
     }
 
     public async Task<int> Run()
     {
-        await DirectoryUtils.ApplyToAllFilesAsync(dirPath, ProcessFile, recursive);
+        if (dstDirPath != null && !Directory.Exists(dstDirPath))
+        {
+            Console.Error.WriteLine($"Destination does not exist or is not a directory: '{dstDirPath}'");
+            return -1;
+        }
+
+        await DirectoryUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursive);
+
+        if (dstDirPath != null && allSimilarImages.Count > 0)
+        {
+            MoveAllToDirectory(allSimilarImages, dstDirPath);
+        }
 
         return 0;
     }
@@ -161,6 +173,15 @@ class FindSimilarImagesCommand
                 return;
             }
 
+            if (dstDirPath != null)
+            {
+                allSimilarImages.Add(path);
+                foreach (string otherPath in similarImages)
+                {
+                    allSimilarImages.Add(otherPath);
+                }
+            }
+
             lock (stringBuilder)
             {
                 stringBuilder.Append(similarImages.Count);
@@ -193,5 +214,45 @@ class FindSimilarImagesCommand
             similarImages?.Clear();
             SimpleObjectPool<List<string>>.ReturnIfNotNull(similarImages);
         }
+    }
+
+    void MoveAllToDirectory(ICollection<string> filesPaths, string directory)
+    {
+        int successes = 0;
+        foreach (string path in filesPaths)
+        {
+            try
+            {
+                string fileName = Path.GetFileName(path);
+                string newPath = Path.Combine(directory, fileName);
+                if (newPath == path)
+                {
+#if DEBUG
+                    Console.WriteLine($"Skipping image file already in similar images directory: '{newPath}'");
+#endif
+                    successes++;
+                    continue;
+                }
+
+                if (Path.Exists(newPath))
+                {
+                    Console.Error.WriteLine($"Another file already exists at destination: '{newPath}'");
+                    continue;
+                }
+
+                File.Move(path, newPath);
+                successes++;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Error moving similar image '{path}': {ex.Message}");
+            }
+        }
+
+        int fails = filesPaths.Count - successes;
+        Console.WriteLine(
+            fails == 0 ?
+            $"Moved all {successes} similar files to '{dstDirPath}'" :
+            $"Moved {successes} out of {filesPaths.Count} ({fails} failed) similar files to '{dstDirPath}'");
     }
 }

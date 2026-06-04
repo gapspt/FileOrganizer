@@ -18,6 +18,12 @@ class OrganizeImagesCommand
 
     public async Task<int> Run()
     {
+        if (!Directory.Exists(dstDirPath))
+        {
+            Console.Error.WriteLine($"Destination does not exist or is not a directory: '{dstDirPath}'");
+            return -1;
+        }
+
         await DirectoryUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursive);
 
         return 0;
@@ -44,14 +50,14 @@ class OrganizeImagesCommand
             if (newPath == origPath)
             {
 #if DEBUG
-                Console.WriteLine($"Skipping image already in correct location: '{origPath}'");
+                Console.WriteLine($"Skipping image file already in correct location: '{origPath}'");
 #endif
                 return;
             }
 
             if (Path.Exists(newPath))
             {
-                Console.Error.WriteLine($"File already exists at destination: '{newPath}'");
+                Console.Error.WriteLine($"Another file already exists at destination: '{newPath}'");
                 return;
             }
 
