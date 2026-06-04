@@ -3,9 +3,9 @@ using System.Text;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
-namespace PhotoOrganizer;
+namespace FileOrganizer;
 
-class FindSimilarImagesCommand
+class FindSimilarCommand
 {
     readonly string srcDirPath;
     readonly string? dstDirPath;
@@ -22,7 +22,7 @@ class FindSimilarImagesCommand
 
     readonly StringBuilder stringBuilder = new();
 
-    public FindSimilarImagesCommand(
+    public FindSimilarCommand(
         string srcDirPath, string? dstDirPath, bool recursive, int widthSamples, int heightSamples, int pixelDifference)
     {
         this.srcDirPath = srcDirPath;

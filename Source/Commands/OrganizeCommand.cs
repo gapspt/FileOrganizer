@@ -1,15 +1,15 @@
 ﻿using System.Diagnostics;
 using System.Text.RegularExpressions;
 
-namespace PhotoOrganizer;
+namespace FileOrganizer;
 
-class OrganizeImagesCommand
+class OrganizeCommand
 {
     readonly string srcDirPath;
     readonly string dstDirPath;
     readonly bool recursive;
 
-    public OrganizeImagesCommand(string srcDirPath, string dstDirPath, bool recursive)
+    public OrganizeCommand(string srcDirPath, string dstDirPath, bool recursive)
     {
         this.srcDirPath = srcDirPath;
         this.dstDirPath = dstDirPath;

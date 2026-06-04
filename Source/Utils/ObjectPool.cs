@@ -1,6 +1,6 @@
 ﻿using System.Diagnostics;
 
-namespace PhotoOrganizer
+namespace FileOrganizer
 {
     public class ObjectPool<T> where T : class
     {

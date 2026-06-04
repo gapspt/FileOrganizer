@@ -2,7 +2,7 @@
 using MetadataExtractor.Formats.Exif;
 using System.Globalization;
 
-namespace PhotoOrganizer
+namespace FileOrganizer
 {
     // TODO: Use SixLabors to read the metadata, thus reading the file only once
     public static class ImageMetadataUtils

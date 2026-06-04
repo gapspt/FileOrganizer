@@ -1,4 +1,4 @@
-﻿namespace PhotoOrganizer
+﻿namespace FileOrganizer
 {
     public class DimensionPartition<T>
     {

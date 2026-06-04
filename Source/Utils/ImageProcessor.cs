@@ -3,7 +3,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
-namespace PhotoOrganizer
+namespace FileOrganizer
 {
     public static class ImageProcessor
     {
