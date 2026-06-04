@@ -11,14 +11,26 @@ static class Program
 
     static async Task<int> Main(string[] args)
     {
-        while (args.Length == 0)
+        if (args.Length == 0)
         {
-            string argsStr = Console.ReadLine()?.Trim() ?? "";
-            args = argsStr.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            while (args.Length == 0)
+            {
+                string argsStr = Console.ReadLine()?.Trim() ?? "";
+                args = argsStr.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            }
+            Console.WriteLine();
+        }
+
+        if (args.Any(a => a == "--help" || a == "-h"))
+        {
+            PrintUsage();
+            return 0;
         }
 
         if (!ParseArguments(args[1..]))
         {
+            Console.WriteLine();
+            PrintUsage();
             return -1;
         }
 
@@ -29,8 +41,12 @@ static class Program
             case "similar":
                 return await new FindSimilarImagesCommand(
                     inDirectory, outDirectory, recursive, widthSamples, heightSamples, pixelDifference).Run();
+            case "help":
+                PrintUsage();
+                return 0;
             default:
-                Console.Error.WriteLine("Invalid command. Available commands: organize | similar");
+                Console.Error.WriteLine("Invalid command.\n");
+                PrintUsage();
                 return -1;
         }
     }
@@ -85,7 +101,7 @@ static class Program
                         }
                         continue;
                     case "--widthSamples" or "-w":
-                        if (!ParseKeyValueInt(ref i, out widthSamples, 1, 64))
+                        if (!ParseKeyValueInt(ref i, out widthSamples, 1, 512))
                         {
                             return false;
                         }
@@ -96,7 +112,7 @@ static class Program
                         }
                         continue;
                     case "--heightSamples" or "-h":
-                        if (!ParseKeyValueInt(ref i, out heightSamples, 1, 64))
+                        if (!ParseKeyValueInt(ref i, out heightSamples, 1, 512))
                         {
                             return false;
                         }
@@ -136,8 +152,40 @@ static class Program
         Console.WriteLine($"widthSamples={widthSamples}");
         Console.WriteLine($"heightSamples={heightSamples}");
         Console.WriteLine($"pixelDifference={pixelDifference}");
+        Console.WriteLine();
 #endif
 
         return true;
+    }
+
+    static void PrintUsage()
+    {
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  PhotoOrganizer <command> [<inDirectory>] [options]");
+        Console.WriteLine("\nCommands:");
+        Console.WriteLine("  organize      Organize images into separate folders.");
+        Console.WriteLine("  similar       Find visually similar images.");
+        Console.WriteLine("\nAll commands:");
+        Console.WriteLine("  <inDirectory>                 Input directory in which to search for images");
+        Console.WriteLine("                                (defaults to the current working directory).");
+        Console.WriteLine("  --recursive, -r               Recurse into input directory's subdirectories.");
+        Console.WriteLine("  --help, -h                    Show this help message.");
+        Console.WriteLine("\norganize:");
+        Console.WriteLine("  --outDirectory, -o            Output directory where to move the images that");
+        Console.WriteLine("                                are found (defaults to the input directory).");
+        Console.WriteLine("\nsimilar:");
+        Console.WriteLine("  --outDirectory, -o            Output directory where to move the images that");
+        Console.WriteLine("                                are found to be similar to any other one.");
+        Console.WriteLine("                                If not provided, no images will be moved, only");
+        Console.WriteLine("                                their original path will be reported.");
+        Console.WriteLine("  --widthSamples, -w <1-512>    Number of width samples per image");
+        Console.WriteLine("                                (default 16, or height samples if provided).");
+        Console.WriteLine("  --heightSamples, -h <1-512>   Number of height samples per image");
+        Console.WriteLine("                                (default 16, or width samples if provided).");
+        Console.WriteLine("  --pixelDifference, -d <N>     Pixel difference threshold (default 8).");
+        Console.WriteLine("\nExamples:");
+        Console.WriteLine("  PhotoOrganizer organize ./Photos -o ./PhotosSorted");
+        Console.WriteLine("  PhotoOrganizer findsimilar ./Photos -r -w 16 -h 16 -d 8");
+        Console.WriteLine();
     }
 }
