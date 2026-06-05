@@ -165,14 +165,35 @@ class OrganizeCommand
             if (FileUtils.PathsReferToSameLocation(newPath, origPath))
             {
 #if DEBUG
-                Console.WriteLine($"Skipping file already in correct location: '{origPath}'");
+                Console.WriteLine($"Skipping file '{origPath}': already in the correct location");
 #endif
                 return;
             }
 
             if (Path.Exists(newPath))
             {
-                Console.Error.WriteLine($"Another file already exists at destination: '{newPath}'");
+                if (!await FileUtils.EqualFileContentsAsync(origPath, newPath))
+                {
+                    Console.Error.WriteLine(
+                        $"Unable to move file '{origPath}': another file already exists at destination '{newPath}'");
+                    return;
+                }
+
+                // Delete duplicate file that would be moved to the same destination of an existing similar file
+                bool deleted = dryRun ?
+                    true :
+                    FileUtils.SafeDeleteIfNotSameFile(origPath, newPath, checkPaths: false);
+                if (deleted)
+                {
+                    Console.WriteLine(
+                        $"Deleted duplicate file '{origPath}': the same file already exists at '{newPath}'");
+                }
+                else
+                {
+#if DEBUG
+                    Console.WriteLine($"Skipping file '{origPath}': already in the correct location");
+#endif
+                }
                 return;
             }
 
