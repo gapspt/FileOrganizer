@@ -16,8 +16,13 @@ class FindSimilarCommand
     readonly int sizeSamples;
     readonly ResizeOptions imageResizeOptions;
 
-    readonly int partitionsSize;
+    readonly int imagesPartitionsSize;
     readonly DimensionPartition<(string, Rgba32[])> imagesPartitioned = new();
+
+    // Note: Using a tuple (string?, List<string>?) below, so that in most cases where one size maps to only one file,
+    // we don't need to allocate a new list just to hold that single file
+    readonly Dictionary<long, (string?, List<string>?)> audioFilesBySize = new();
+    readonly Dictionary<long, (string?, List<string>?)> videoFilesBySize = new();
 
     readonly HashSet<string> allSimilarFiles = new();
 
@@ -41,7 +46,7 @@ class FindSimilarCommand
             Size = new(widthSamples, heightSamples),
         };
 
-        partitionsSize = Math.Max(1, pixelDifference);
+        imagesPartitionsSize = Math.Max(1, pixelDifference);
     }
 
     public async Task<int> Run()
@@ -76,8 +81,14 @@ class FindSimilarCommand
         var category = await FileTypeDetector.DetectCategoryFromContent(file.FullName);
         switch (category)
         {
+            case FileCategory.Audio:
+                await ProcessGenericFile(file, audioFilesBySize);
+                break;
             case FileCategory.Image:
                 await ProcessImageFile(file);
+                break;
+            case FileCategory.Video:
+                await ProcessGenericFile(file, videoFilesBySize);
                 break;
             default:
 #if DEBUG
@@ -87,16 +98,72 @@ class FindSimilarCommand
         }
     }
 
+    async ValueTask ProcessGenericFile(FileInfo file, Dictionary<long, (string?, List<string>?)> filesBySize)
+    {
+        string path = file.FullName;
+        long size = file.Length;
+
+        List<string>? matchingCandidates = null;
+        List<string>? similarFound = null;
+        try
+        {
+            lock (filesBySize)
+            {
+                if (!filesBySize.TryGetValue(size, out var paths))
+                {
+                    filesBySize[size] = (path, null);
+                    return;
+                }
+
+                List<string>? list = paths.Item2;
+                if (list == null) // Only one item exists, create the list in order to hold multiple items
+                {
+                    Debug.Assert(paths.Item1 != null);
+                    list = [paths.Item1];
+                    filesBySize[size] = (null, list);
+                }
+
+                matchingCandidates = SimpleObjectPool<List<string>>.Get();
+                matchingCandidates.AddRange(list);
+
+                list.Add(path);
+            }
+
+            similarFound = SimpleObjectPool<List<string>>.Get();
+            foreach (var otherPath in matchingCandidates)
+            {
+                if (await FileUtils.EqualFileContentsAsync(path, otherPath))
+                {
+                    similarFound.Add(otherPath);
+                }
+            }
+
+            HandleSimilarFilesFound(path, similarFound, matchingCandidates.Count);
+        }
+        catch (Exception e)
+        {
+            Console.Error.Write(e);
+        }
+        finally
+        {
+            matchingCandidates?.Clear();
+            SimpleObjectPool<List<string>>.ReturnIfNotNull(matchingCandidates);
+
+            similarFound?.Clear();
+            SimpleObjectPool<List<string>>.ReturnIfNotNull(similarFound);
+        }
+    }
+
     async ValueTask ProcessImageFile(FileInfo file)
     {
         List<(string, Rgba32[])>? matchingCandidates = null;
-        List<string>? similarImages = null;
+        List<string>? similarFound = null;
         try
         {
             string path = file.FullName;
 
             Rgba32[] pixels = new Rgba32[sizeSamples];
-            await ImageProcessor.GetImageResized(path, pixels, imageResizeOptions);
+            await MediaUtils.GetImageResized(path, pixels, imageResizeOptions);
 
             // Set fully transparent pixels' RGB values to zero
             for (int i = 0; i < sizeSamples; i++)
@@ -110,8 +177,8 @@ class FindSimilarCommand
             Rgba32 p0 = pixels[0];
             Rgba32 p1 = pixels[sizeSamples - 1];
 
-            int r0 = p0.R / partitionsSize, g0 = p0.G / partitionsSize, b0 = p0.B / partitionsSize;
-            int r1 = p1.R / partitionsSize, g1 = p1.G / partitionsSize, b1 = p1.B / partitionsSize;
+            int r0 = p0.R / imagesPartitionsSize, g0 = p0.G / imagesPartitionsSize, b0 = p0.B / imagesPartitionsSize;
+            int r1 = p1.R / imagesPartitionsSize, g1 = p1.G / imagesPartitionsSize, b1 = p1.B / imagesPartitionsSize;
 
             matchingCandidates = SimpleObjectPool<List<(string, Rgba32[])>>.Get();
             lock (imagesPartitioned)
@@ -173,51 +240,16 @@ class FindSimilarCommand
                 return;
             }
 
-            similarImages = SimpleObjectPool<List<string>>.Get();
+            similarFound = SimpleObjectPool<List<string>>.Get();
             foreach (var (otherPath, otherPixels) in matchingCandidates)
             {
-                if (ImageProcessor.ArePixelsSimilar(pixels, otherPixels, pixelDifference))
+                if (MediaUtils.ArePixelsSimilar(pixels, otherPixels, pixelDifference))
                 {
-                    similarImages.Add(otherPath);
+                    similarFound.Add(otherPath);
                 }
             }
 
-            if (similarImages.Count == 0)
-            {
-#if DEBUG
-                Console.WriteLine($"No similar files found (from {matchingCandidates.Count} potential matches) for {path}");
-#endif
-                return;
-            }
-
-            if (dstDirPath != null)
-            {
-                allSimilarFiles.Add(path);
-                foreach (string otherPath in similarImages)
-                {
-                    allSimilarFiles.Add(otherPath);
-                }
-            }
-
-            lock (stringBuilder)
-            {
-                stringBuilder.Append(similarImages.Count);
-                stringBuilder.Append(" similar files found ");
-#if DEBUG
-                stringBuilder.Append("(from ");
-                stringBuilder.Append(matchingCandidates.Count);
-                stringBuilder.Append(" potential matches) ");
-#endif
-                stringBuilder.Append("for ");
-                stringBuilder.Append(path);
-                foreach (string otherPath in similarImages)
-                {
-                    stringBuilder.Append("\n  ");
-                    stringBuilder.Append(otherPath);
-                }
-                Console.WriteLine(stringBuilder);
-                stringBuilder.Clear();
-            }
+            HandleSimilarFilesFound(path, similarFound, matchingCandidates.Count);
         }
         catch (Exception e)
         {
@@ -228,8 +260,56 @@ class FindSimilarCommand
             matchingCandidates?.Clear();
             SimpleObjectPool<List<(string, Rgba32[])>>.ReturnIfNotNull(matchingCandidates);
 
-            similarImages?.Clear();
-            SimpleObjectPool<List<string>>.ReturnIfNotNull(similarImages);
+            similarFound?.Clear();
+            SimpleObjectPool<List<string>>.ReturnIfNotNull(similarFound);
+        }
+    }
+
+    void HandleSimilarFilesFound(string path, IList<string> similarFound, int? candidates = null)
+    {
+        if (similarFound.Count == 0)
+        {
+#if DEBUG
+            Console.WriteLine(candidates.HasValue ?
+                $"No similar files found (from {candidates.Value} potential matches) for {path}" :
+                $"No similar files found for {path}");
+#endif
+            return;
+        }
+
+        if (dstDirPath != null)
+        {
+            lock (allSimilarFiles)
+            {
+                allSimilarFiles.Add(path);
+                foreach (string otherPath in similarFound)
+                {
+                    allSimilarFiles.Add(otherPath);
+                }
+            }
+        }
+
+        lock (stringBuilder)
+        {
+            stringBuilder.Append(similarFound.Count);
+            stringBuilder.Append(" similar files found ");
+#if DEBUG
+            if (candidates.HasValue)
+            {
+                stringBuilder.Append("(from ");
+                stringBuilder.Append(candidates.Value);
+                stringBuilder.Append(" potential matches) ");
+            }
+#endif
+            stringBuilder.Append("for ");
+            stringBuilder.Append(path);
+            foreach (string otherPath in similarFound)
+            {
+                stringBuilder.Append("\n  ");
+                stringBuilder.Append(otherPath);
+            }
+            Console.WriteLine(stringBuilder);
+            stringBuilder.Clear();
         }
     }
 
