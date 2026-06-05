@@ -5,12 +5,17 @@ static class Program
     static string inDirectory = Directory.GetCurrentDirectory();
     static string? outDirectory = null;
     static bool recursive = false;
+    static bool dryRun = false;
     static int widthSamples = 16;
     static int heightSamples = 16;
     static int pixelDifference = 8;
 
     static async Task<int> Main(string[] args)
     {
+#if DEBUG
+        dryRun = true;
+#endif
+
         if (args.Length == 0)
         {
             while (args.Length == 0)
@@ -37,10 +42,10 @@ static class Program
         switch (args[0])
         {
             case "organize":
-                return await new OrganizeCommand(inDirectory, outDirectory ?? inDirectory, recursive).Run();
+                return await new OrganizeCommand(inDirectory, outDirectory ?? inDirectory, recursive, dryRun).Run();
             case "similar":
                 return await new FindSimilarCommand(
-                    inDirectory, outDirectory, recursive, widthSamples, heightSamples, pixelDifference).Run();
+                    inDirectory, outDirectory, recursive, dryRun, widthSamples, heightSamples, pixelDifference).Run();
             case "help":
                 PrintUsage();
                 return 0;
@@ -93,6 +98,9 @@ static class Program
                 {
                     case "--recursive" or "-r":
                         recursive = true;
+                        continue;
+                    case "--dryRun" or "-dry":
+                        dryRun = true;
                         continue;
                     case "--outDirectory" or "-o":
                         if (!GetKeyValueString(ref i, out outDirectory))
@@ -149,6 +157,7 @@ static class Program
         Console.WriteLine($"inDirectory={inDirectory}");
         Console.WriteLine($"outDirectory={outDirectory}");
         Console.WriteLine($"recursive={recursive}");
+        Console.WriteLine($"dryRun={dryRun}");
         Console.WriteLine($"widthSamples={widthSamples}");
         Console.WriteLine($"heightSamples={heightSamples}");
         Console.WriteLine($"pixelDifference={pixelDifference}");
@@ -169,6 +178,8 @@ static class Program
         Console.WriteLine("  <inDirectory>                 Input directory in which to search for images");
         Console.WriteLine("                                (defaults to the current working directory).");
         Console.WriteLine("  --recursive, -r               Recurse into input directory's subdirectories.");
+        Console.WriteLine("  --dryRun, -dry                Does not make any change, only reports the");
+        Console.WriteLine("                                changes that would be made.");
         Console.WriteLine("  --help, -h                    Show this help message.");
         Console.WriteLine("\norganize:");
         Console.WriteLine("  --outDirectory, -o            Output directory where to move the files that");

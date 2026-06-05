@@ -10,6 +10,7 @@ class FindSimilarCommand
     readonly string srcDirPath;
     readonly string? dstDirPath;
     readonly bool recursive;
+    readonly bool dryRun;
     readonly int pixelDifference;
 
     readonly int sizeSamples;
@@ -22,12 +23,13 @@ class FindSimilarCommand
 
     readonly StringBuilder stringBuilder = new();
 
-    public FindSimilarCommand(
-        string srcDirPath, string? dstDirPath, bool recursive, int widthSamples, int heightSamples, int pixelDifference)
+    public FindSimilarCommand(string srcDirPath, string? dstDirPath, bool recursive, bool dryRun,
+        int widthSamples, int heightSamples, int pixelDifference)
     {
         this.srcDirPath = srcDirPath;
         this.dstDirPath = dstDirPath;
         this.recursive = recursive;
+        this.dryRun = dryRun;
         this.pixelDifference = pixelDifference;
 
         sizeSamples = widthSamples * heightSamples;
@@ -246,7 +248,14 @@ class FindSimilarCommand
                     continue;
                 }
 
-                File.Move(path, newPath);
+                if (!dryRun)
+                {
+                    File.Move(path, newPath);
+                }
+                else
+                {
+                    Console.WriteLine($"Moved similar file '{path}' to '{newPath}'");
+                }
                 successes++;
             }
             catch (Exception ex)

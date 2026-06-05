@@ -43,12 +43,14 @@ class OrganizeCommand
     readonly string srcDirPath;
     readonly string dstDirPath;
     readonly bool recursive;
+    readonly bool dryRun;
 
-    public OrganizeCommand(string srcDirPath, string dstDirPath, bool recursive)
+    public OrganizeCommand(string srcDirPath, string dstDirPath, bool recursive, bool dryRun)
     {
         this.srcDirPath = srcDirPath;
         this.dstDirPath = dstDirPath;
         this.recursive = recursive;
+        this.dryRun = dryRun;
     }
 
     public async Task<int> Run()
@@ -161,8 +163,11 @@ class OrganizeCommand
                 return;
             }
 
-            Directory.CreateDirectory(newDirPath);
-            file.MoveTo(newPath, false);
+            if (!dryRun)
+            {
+                Directory.CreateDirectory(newDirPath);
+                file.MoveTo(newPath, false);
+            }
             Console.WriteLine($"Moved file '{origPath}' to '{newPath}'");
         }
         catch (Exception ex)
