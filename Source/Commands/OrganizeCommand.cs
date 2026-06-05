@@ -76,8 +76,9 @@ class OrganizeCommand
 
         try
         {
-            string origDirPath = file.DirectoryName ?? srcDirPath;
-            string fileName = file.Name;
+            string origFileName = file.Name;
+
+            string fileName = origFileName;
             string subDirPath;
             bool preserveDirStructure = true;
 
@@ -89,6 +90,8 @@ class OrganizeCommand
                 Console.WriteLine($"Skipping file from {details.platform}/{details.author}: '{origPath}'");
                 return;
             }
+
+            ReadOnlySpan<char> origExtension = Path.GetExtension(origFileName.AsSpan());
 
             switch (details.category)
             {
@@ -112,7 +115,9 @@ class OrganizeCommand
                 case OrganizationCategory.ImagePhoto or OrganizationCategory.VideoCamera:
                     subDirPath = GetDirectoryWithYear(details, "Camera");
                     preserveDirStructure = false;
-                    // TODO: Change the fileName
+                    string prefix = details.category == OrganizationCategory.ImagePhoto ? "IMG_" : "VID_";
+                    fileName =
+                        $"{prefix}{details.year:D4}{details.month:D2}{details.day:D2}_{details.hour:D2}{details.minute:D2}{details.second:D2}{details.millisecond:D3}{origExtension}";
                     break;
                 case OrganizationCategory.ImageScreenshot or OrganizationCategory.VideoScreenRecording:
                     subDirPath = GetDirectoryWithYear(details, "ScreenCaptures");
@@ -137,8 +142,17 @@ class OrganizeCommand
                     return;
             }
 
+            if (origExtension.Length < 1 && fileName != origFileName)
+            {
+                Console.Error.WriteLine(
+                    $"Illegal attempt to change the name of a file from '{origFileName}' to '{fileName}' (file names without extensions must not change): '{origPath}'");
+                Debug.Assert(false);
+                return;
+            }
+
             if (preserveDirStructure)
             {
+                string origDirPath = Path.GetDirectoryName(origPath) ?? srcDirPath;
                 string originalSubDirPath = Path.GetRelativePath(srcDirPath, origDirPath);
                 subDirPath = originalSubDirPath.StartsWith(subDirPath) ?
                     originalSubDirPath :
