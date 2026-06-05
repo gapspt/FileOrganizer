@@ -13,12 +13,12 @@ class FindSimilarCommand
     readonly int pixelDifference;
 
     readonly int sizeSamples;
-    readonly ResizeOptions thumbnailResizeOptions;
+    readonly ResizeOptions imageResizeOptions;
 
     readonly int partitionsSize;
     readonly DimensionPartition<(string, Rgba32[])> imagesPartitioned = new();
 
-    readonly HashSet<string> allSimilarImages = new();
+    readonly HashSet<string> allSimilarFiles = new();
 
     readonly StringBuilder stringBuilder = new();
 
@@ -31,7 +31,7 @@ class FindSimilarCommand
         this.pixelDifference = pixelDifference;
 
         sizeSamples = widthSamples * heightSamples;
-        thumbnailResizeOptions = new()
+        imageResizeOptions = new()
         {
             Mode = ResizeMode.Stretch,
             Sampler = KnownResamplers.Bicubic,
@@ -52,15 +52,31 @@ class FindSimilarCommand
 
         await DirectoryUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursive);
 
-        if (dstDirPath != null && allSimilarImages.Count > 0)
+        if (dstDirPath != null && allSimilarFiles.Count > 0)
         {
-            MoveAllToDirectory(allSimilarImages, dstDirPath);
+            MoveAllToDirectory(allSimilarFiles, dstDirPath);
         }
 
         return 0;
     }
 
     async ValueTask ProcessFile(FileInfo file)
+    {
+        var category = await FileTypeDetector.DetectCategoryFromContent(file.FullName);
+        switch (category)
+        {
+            case FileCategory.Image:
+                await ProcessImageFile(file);
+                break;
+            default:
+#if DEBUG
+                Console.WriteLine($"Skipping unknown file type: '{file.FullName}'");
+#endif
+                break;
+        }
+    }
+
+    async ValueTask ProcessImageFile(FileInfo file)
     {
         List<(string, Rgba32[])>? matchingCandidates = null;
         List<string>? similarImages = null;
@@ -69,17 +85,7 @@ class FindSimilarCommand
             string path = file.FullName;
 
             Rgba32[] pixels = new Rgba32[sizeSamples];
-            try
-            {
-                await ImageProcessor.GetImageResized(path, pixels, thumbnailResizeOptions);
-            }
-            catch (Exception)
-            {
-#if DEBUG
-                Console.WriteLine($"Skipping non image file: {path}");
-#endif
-                return;
-            }
+            await ImageProcessor.GetImageResized(path, pixels, imageResizeOptions);
 
             // Set fully transparent pixels' RGB values to zero
             for (int i = 0; i < sizeSamples; i++)
@@ -175,10 +181,10 @@ class FindSimilarCommand
 
             if (dstDirPath != null)
             {
-                allSimilarImages.Add(path);
+                allSimilarFiles.Add(path);
                 foreach (string otherPath in similarImages)
                 {
-                    allSimilarImages.Add(otherPath);
+                    allSimilarFiles.Add(otherPath);
                 }
             }
 
@@ -228,7 +234,7 @@ class FindSimilarCommand
                 if (newPath == path)
                 {
 #if DEBUG
-                    Console.WriteLine($"Skipping image file already in similar images directory: '{newPath}'");
+                    Console.WriteLine($"Skipping file already in similar files directory: '{newPath}'");
 #endif
                     successes++;
                     continue;
@@ -245,7 +251,7 @@ class FindSimilarCommand
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Error moving similar image '{path}': {ex.Message}");
+                Console.Error.WriteLine($"Error moving similar file '{path}': {ex.Message}");
             }
         }
 
