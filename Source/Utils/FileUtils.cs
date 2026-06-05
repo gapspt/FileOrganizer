@@ -1,9 +1,12 @@
-﻿using System.Diagnostics;
-
-namespace FileOrganizer
+﻿namespace FileOrganizer
 {
-    public static class DirectoryUtils
+    public static class FileUtils
     {
+        public static bool PathsReferToSameLocation(string path1, string path2)
+        {
+            return path1 == path2 || Path.GetRelativePath(path1, path2) == ".";
+        }
+
         public static async ValueTask ApplyToAllFilesAsync(DirectoryInfo dir, Func<FileInfo, ValueTask> action, bool recursive = false)
         {
             var tasks = SimpleObjectPool<List<Task<ValueTask>>>.Get();

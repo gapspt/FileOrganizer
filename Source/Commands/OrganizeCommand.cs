@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 
 namespace FileOrganizer;
@@ -61,7 +60,7 @@ class OrganizeCommand
             return -1;
         }
 
-        await DirectoryUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursive);
+        await FileUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursive);
 
         return 0;
     }
@@ -70,7 +69,7 @@ class OrganizeCommand
     {
         static string GetDirectoryWithYear(in OrganizationDetails details, string? parentDir = null)
         {
-            return CombinePathsIfExists(parentDir, details.HasDate ? $"{details.year:D4}" : $"Unknown");
+            return Path.Join(parentDir, details.HasDate ? $"{details.year:D4}" : $"Unknown");
         }
 
         string origPath = file.FullName;
@@ -143,13 +142,13 @@ class OrganizeCommand
                 string originalSubDirPath = Path.GetRelativePath(srcDirPath, origDirPath);
                 subDirPath = originalSubDirPath.StartsWith(subDirPath) ?
                     originalSubDirPath :
-                    CombinePathsIfExists(subDirPath, originalSubDirPath);
+                    Path.Join(subDirPath, originalSubDirPath);
             }
 
-            string newDirPath = Path.Combine(dstDirPath, subDirPath);
-            string newPath = Path.Combine(newDirPath, fileName);
+            string newDirPath = Path.Join(dstDirPath, subDirPath);
+            string newPath = Path.Join(newDirPath, fileName);
 
-            if (PathsReferToSameLocation(newPath, origPath))
+            if (FileUtils.PathsReferToSameLocation(newPath, origPath))
             {
 #if DEBUG
                 Console.WriteLine($"Skipping file already in correct location: '{origPath}'");
@@ -251,18 +250,5 @@ class OrganizeCommand
     {
         var m = r.Match(s);
         return m.Success && m.Length == s.Length;
-    }
-
-    static bool PathsReferToSameLocation(string path1, string path2)
-    {
-        return path1 == path2 || Path.GetRelativePath(path1, path2) == ".";
-    }
-
-    [return: NotNullIfNotNull(nameof(path1)), NotNullIfNotNull(nameof(path2))]
-    static string? CombinePathsIfExists(string? path1, string? path2)
-    {
-        return path1 == null ? path2 :
-            path2 == null ? path1 :
-            Path.Combine(path1, path2);
     }
 }

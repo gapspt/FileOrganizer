@@ -46,17 +46,26 @@ class FindSimilarCommand
 
     public async Task<int> Run()
     {
-        if (dstDirPath != null && !Directory.Exists(dstDirPath))
+        if (dstDirPath != null)
         {
-            Console.Error.WriteLine($"Destination does not exist or is not a directory: '{dstDirPath}'");
-            return -1;
+            if (!Directory.Exists(dstDirPath))
+            {
+                Console.Error.WriteLine($"Destination does not exist or is not a directory: '{dstDirPath}'");
+                return -1;
+            }
+            if (FileUtils.PathsReferToSameLocation(dstDirPath, srcDirPath))
+            {
+                Console.Error.WriteLine(
+                    $"Destination for similar files is the same as the input files directory: '{srcDirPath}'");
+                return -1;
+            }
         }
 
-        await DirectoryUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursive);
+        await FileUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursive);
 
         if (dstDirPath != null && allSimilarFiles.Count > 0)
         {
-            MoveAllToDirectory(allSimilarFiles, dstDirPath);
+            MoveAllSimilarFiles();
         }
 
         return 0;
@@ -224,23 +233,17 @@ class FindSimilarCommand
         }
     }
 
-    void MoveAllToDirectory(ICollection<string> filesPaths, string directory)
+    void MoveAllSimilarFiles()
     {
+        Debug.Assert(dstDirPath != null && allSimilarFiles.Count > 0);
+
         int successes = 0;
-        foreach (string path in filesPaths)
+        foreach (string path in allSimilarFiles)
         {
             try
             {
-                string fileName = Path.GetFileName(path);
-                string newPath = Path.Combine(directory, fileName);
-                if (newPath == path)
-                {
-#if DEBUG
-                    Console.WriteLine($"Skipping file already in similar files directory: '{newPath}'");
-#endif
-                    successes++;
-                    continue;
-                }
+                string relativePath = Path.GetRelativePath(srcDirPath, path);
+                string newPath = Path.Join(dstDirPath, relativePath);
 
                 if (Path.Exists(newPath))
                 {
@@ -248,9 +251,12 @@ class FindSimilarCommand
                     continue;
                 }
 
+                string? destinationDirectory = Path.GetDirectoryName(newPath);
+                Debug.Assert(destinationDirectory != null);
                 if (!dryRun)
                 {
-                    File.Move(path, newPath);
+                    Directory.CreateDirectory(destinationDirectory);
+                    File.Move(path, newPath, false);
                 }
                 else
                 {
@@ -264,10 +270,10 @@ class FindSimilarCommand
             }
         }
 
-        int fails = filesPaths.Count - successes;
+        int fails = allSimilarFiles.Count - successes;
         Console.WriteLine(
             fails == 0 ?
             $"Moved all {successes} similar files to '{dstDirPath}'" :
-            $"Moved {successes} out of {filesPaths.Count} ({fails} failed) similar files to '{dstDirPath}'");
+            $"Moved {successes} out of {allSimilarFiles.Count} ({fails} failed) similar files to '{dstDirPath}'");
     }
 }
