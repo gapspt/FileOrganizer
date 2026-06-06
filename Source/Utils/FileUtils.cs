@@ -9,7 +9,8 @@ public static class FileUtils
         return path1 == path2 || Path.GetRelativePath(path1, path2) == ".";
     }
 
-    public static async ValueTask ApplyToAllFilesAsync(DirectoryInfo dir, Func<FileInfo, ValueTask> action, bool recursive = false)
+    public static async ValueTask ApplyToAllFilesAsync(
+        DirectoryInfo dir, Func<FileInfo, ValueTask> action, int recursionLevels = 0)
     {
         var tasks = SimpleObjectPool<List<Task<ValueTask>>>.Get();
 
@@ -21,12 +22,12 @@ public static class FileUtils
                 tasks.Add(Task.Run(() => action(f)));
             }
 
-            if (recursive)
+            if (--recursionLevels >= 0)
             {
                 foreach (var d in dir.EnumerateDirectories())
                 {
                     // Note: We call `Task.Run` to force each recursion call to run in parallel
-                    tasks.Add(Task.Run(() => ApplyToAllFilesAsync(d, action, true)));
+                    tasks.Add(Task.Run(() => ApplyToAllFilesAsync(d, action, recursionLevels)));
                 }
             }
 
@@ -41,8 +42,8 @@ public static class FileUtils
             SimpleObjectPool<List<Task<ValueTask>>>.Return(tasks);
         }
     }
-    public static async ValueTask ApplyToAllFilesAsync(string path, Func<FileInfo, ValueTask> action, bool recursive = false)
-        => await ApplyToAllFilesAsync(new DirectoryInfo(path), action, recursive);
+    public static ValueTask ApplyToAllFilesAsync(string path, Func<FileInfo, ValueTask> action, int recursionLevels = 0)
+        => ApplyToAllFilesAsync(new DirectoryInfo(path), action, recursionLevels);
 
     public static async ValueTask<bool> EqualFileContentsAsync(string path1, string path2)
     {

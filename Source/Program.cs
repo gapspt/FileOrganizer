@@ -4,8 +4,8 @@ static class Program
 {
     static string inDirectory = Directory.GetCurrentDirectory();
     static string? outDirectory = null;
-    static bool recursive = false;
     static bool dryRun = false;
+    static int recursionLevels = 0;
     static int widthSamples = 16;
     static int heightSamples = 16;
     static int pixelDifference = 8;
@@ -42,10 +42,10 @@ static class Program
         switch (args[0])
         {
             case "organize":
-                return await new OrganizeCommand(inDirectory, outDirectory ?? inDirectory, recursive, dryRun).Run();
+                return await new OrganizeCommand(inDirectory, outDirectory ?? inDirectory, dryRun, recursionLevels).Run();
             case "similar":
                 return await new FindSimilarCommand(
-                    inDirectory, outDirectory, recursive, dryRun, widthSamples, heightSamples, pixelDifference).Run();
+                    inDirectory, outDirectory, dryRun, recursionLevels, widthSamples, heightSamples, pixelDifference).Run();
             case "help":
                 PrintUsage();
                 return 0;
@@ -96,11 +96,14 @@ static class Program
             {
                 switch (arg)
                 {
-                    case "--recursive" or "-r":
-                        recursive = true;
-                        continue;
                     case "--dryRun" or "-dry":
                         dryRun = true;
+                        continue;
+                    case "--recursionLevels" or "-r":
+                        if (!ParseKeyValueInt(ref i, out recursionLevels, 0))
+                        {
+                            return false;
+                        }
                         continue;
                     case "--outDirectory" or "-o":
                         if (!GetKeyValueString(ref i, out outDirectory))
@@ -156,8 +159,8 @@ static class Program
 #if DEBUG
         Console.WriteLine($"inDirectory={inDirectory}");
         Console.WriteLine($"outDirectory={outDirectory}");
-        Console.WriteLine($"recursive={recursive}");
         Console.WriteLine($"dryRun={dryRun}");
+        Console.WriteLine($"recursionLevels={recursionLevels}");
         Console.WriteLine($"widthSamples={widthSamples}");
         Console.WriteLine($"heightSamples={heightSamples}");
         Console.WriteLine($"pixelDifference={pixelDifference}");
@@ -169,6 +172,7 @@ static class Program
 
     static void PrintUsage()
     {
+        // 80 chars max   |12345678901234567890123456789012345678901234567890123456789012345678901234567890|
         Console.WriteLine("Usage:");
         Console.WriteLine("  FileOrganizer <command> [<inDirectory>] [options]");
         Console.WriteLine("\nCommands:");
@@ -177,15 +181,16 @@ static class Program
         Console.WriteLine("\nAll commands:");
         Console.WriteLine("  <inDirectory>                 Input directory in which to search for images");
         Console.WriteLine("                                (defaults to the current working directory).");
-        Console.WriteLine("  --recursive, -r               Recurse into input directory's subdirectories.");
         Console.WriteLine("  --dryRun, -dry                Does not make any change, only reports the");
         Console.WriteLine("                                changes that would be made.");
+        Console.WriteLine("  --recursionLevels, -r <N>     Recurse into input directory's subdirectories");
+        Console.WriteLine("                                for at most N levels deep (default 0).");
         Console.WriteLine("  --help, -h                    Show this help message.");
         Console.WriteLine("\norganize:");
-        Console.WriteLine("  --outDirectory, -o            Output directory where to move the files that");
+        Console.WriteLine("  --outDirectory, -o <path>     Output directory where to move the files that");
         Console.WriteLine("                                are found (defaults to the input directory).");
         Console.WriteLine("\nsimilar:");
-        Console.WriteLine("  --outDirectory, -o            Output directory where to move the files that");
+        Console.WriteLine("  --outDirectory, -o <path>     Output directory where to move the files that");
         Console.WriteLine("                                are found to be similar to any other one.");
         Console.WriteLine("                                If not provided, no files will be moved, only");
         Console.WriteLine("                                their original path will be reported.");

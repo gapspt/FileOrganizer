@@ -61,15 +61,15 @@ class OrganizeCommand
 
     readonly string srcDirPath;
     readonly string dstDirPath;
-    readonly bool recursive;
     readonly bool dryRun;
+    readonly int recursionLevels;
 
-    public OrganizeCommand(string srcDirPath, string dstDirPath, bool recursive, bool dryRun)
+    public OrganizeCommand(string srcDirPath, string dstDirPath, bool dryRun, int recursionLevels)
     {
         this.srcDirPath = srcDirPath;
         this.dstDirPath = dstDirPath;
-        this.recursive = recursive;
         this.dryRun = dryRun;
+        this.recursionLevels = recursionLevels;
     }
 
     public async Task<int> Run()
@@ -80,7 +80,7 @@ class OrganizeCommand
             return -1;
         }
 
-        await FileUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursive);
+        await FileUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursionLevels);
 
         return 0;
     }

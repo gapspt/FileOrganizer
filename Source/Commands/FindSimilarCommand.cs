@@ -9,8 +9,8 @@ class FindSimilarCommand
 {
     readonly string srcDirPath;
     readonly string? dstDirPath;
-    readonly bool recursive;
     readonly bool dryRun;
+    readonly int recursionLevels;
     readonly int pixelDifference;
 
     readonly int sizeSamples;
@@ -28,13 +28,13 @@ class FindSimilarCommand
 
     readonly StringBuilder stringBuilder = new();
 
-    public FindSimilarCommand(string srcDirPath, string? dstDirPath, bool recursive, bool dryRun,
+    public FindSimilarCommand(string srcDirPath, string? dstDirPath, bool dryRun, int recursionLevels,
         int widthSamples, int heightSamples, int pixelDifference)
     {
         this.srcDirPath = srcDirPath;
         this.dstDirPath = dstDirPath;
-        this.recursive = recursive;
         this.dryRun = dryRun;
+        this.recursionLevels = recursionLevels;
         this.pixelDifference = pixelDifference;
 
         sizeSamples = widthSamples * heightSamples;
@@ -66,7 +66,7 @@ class FindSimilarCommand
             }
         }
 
-        await FileUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursive);
+        await FileUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursionLevels);
 
         if (dstDirPath != null && allSimilarFiles.Count > 0)
         {
