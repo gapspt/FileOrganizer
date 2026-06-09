@@ -122,6 +122,10 @@ public static class FileUtils
     /// <paramref name="toKeep"/>. Returns true if the file was deleted; or false if it was not deleted, when it is
     /// determined that it is the same file as <paramref name="toKeep"/>.
     /// </summary>
+    /// <param name="toDelete"></param>
+    /// <param name="toKeep"></param>
+    /// <param name="checkPaths"></param>
+    /// <returns></returns>
     public static bool SafeDeleteIfNotSameFile(string toDelete, string toKeep, bool checkPaths = true)
     {
         if (checkPaths && PathsReferToSameLocation(toDelete, toKeep))
@@ -180,6 +184,42 @@ public static class FileUtils
             }
             catch { }
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Deletes all empty directories under the directory at <paramref name="dirPath"/>.
+    /// </summary>
+    /// <param name="dirPath"></param>
+    /// <param name="includeSelf">`true` if it should also delete the directory at <paramref name="dirPath"/> if it
+    /// becomes empty; or `false` if it should only delete its subdirectories. </param>
+    /// <returns>`true` it the directory was deleted; or `false` otherwise.
+    /// It will never return `true` if <paramref name="includeSelf"/> is `false`.</returns>
+    public static bool DeleteAllEmptySubDirectories(string dirPath, bool includeSelf)
+    {
+        foreach (var d in Directory.EnumerateDirectories(dirPath))
+        {
+            includeSelf &= DeleteAllEmptySubDirectories(d, true);
+        }
+        return includeSelf && DeleteDirectoryIfEmpty(dirPath);
+    }
+
+    public static bool DeleteDirectoryIfEmpty(string dirPath)
+    {
+        try
+        {
+            Directory.Delete(dirPath, false);
+            return true;
+        }
+        catch (UnauthorizedAccessException) { throw; }
+        catch (ArgumentException) { throw; }
+        catch (PathTooLongException) { throw; }
+        catch (DirectoryNotFoundException) { throw; }
+        catch (FileNotFoundException) { throw; }
+        catch (IOException)
+        {
+            // Probably the directory is not empty
+            return false;
         }
     }
 }

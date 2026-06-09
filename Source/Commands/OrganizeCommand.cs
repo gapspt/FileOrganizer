@@ -99,6 +99,32 @@ class OrganizeCommand
 
         await FileUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursionLevels);
 
+        // Remove empty subdirectories from the source directory
+        foreach (var d in Directory.EnumerateDirectories(srcDirPath))
+        {
+            bool alsoDeleteSubdir = true;
+            if (srcDirPath == dstDirPath)
+            {
+                ReadOnlySpan<char> dirName = Path.GetFileName(srcDirPath.AsSpan());
+                switch (dirName)
+                {
+                    case DirAudioRecordings:
+                    case DirCamera:
+                    case DirDocuments:
+                    case DirMemes:
+                    case DirMusic:
+                    case DirRingtones:
+                    case DirScreenCaptures:
+                    case DirWallpapers:
+                        // When using the same source directory as the destination directory,
+                        // keep these subdirectories even if they are empty
+                        alsoDeleteSubdir = false;
+                        break;
+                }
+            }
+            FileUtils.DeleteAllEmptySubDirectories(d, alsoDeleteSubdir);
+        }
+
         return 0;
     }
 
