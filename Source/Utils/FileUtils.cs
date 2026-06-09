@@ -4,46 +4,52 @@ namespace FileOrganizer;
 
 public static class FileUtils
 {
+    public delegate ValueTask ApplyToFileDelegate(string filePath, string[] relativePathComponents);
+
     public static bool PathsReferToSameLocation(string path1, string path2)
     {
         return path1 == path2 || Path.GetRelativePath(path1, path2) == ".";
     }
 
-    public static async ValueTask ApplyToAllFilesAsync(
-        DirectoryInfo dir, Func<FileInfo, ValueTask> action, int recursionLevels = 0)
+    public static ValueTask ApplyToAllFilesAsync(string dirPath, ApplyToFileDelegate action, int recursionLevels = 0)
     {
-        var tasks = SimpleObjectPool<List<Task<ValueTask>>>.Get();
-
-        try
+        static async ValueTask Recurse(
+            string dirPath, ApplyToFileDelegate action, int recursionLevels, string[] relativePathComponents)
         {
-            foreach (var f in dir.EnumerateFiles())
-            {
-                // Note: We call `Task.Run` to force the `action` to run in parallel even if it runs synchronously
-                tasks.Add(Task.Run(() => action(f)));
-            }
+            var tasks = SimpleObjectPool<List<Task<ValueTask>>>.Get();
 
-            if (--recursionLevels >= 0)
+            try
             {
-                foreach (var d in dir.EnumerateDirectories())
+                foreach (var f in Directory.EnumerateFiles(dirPath))
                 {
-                    // Note: We call `Task.Run` to force each recursion call to run in parallel
-                    tasks.Add(Task.Run(() => ApplyToAllFilesAsync(d, action, recursionLevels)));
+                    // Note: We call `Task.Run` to force the `action` to run in parallel even if it runs synchronously
+                    tasks.Add(Task.Run(() => action(f, [.. relativePathComponents, Path.GetFileName(f)])));
+                }
+
+                if (--recursionLevels >= 0)
+                {
+                    foreach (var d in Directory.EnumerateDirectories(dirPath))
+                    {
+                        // Note: We call `Task.Run` to force each recursion call to run in parallel
+                        tasks.Add(Task.Run(() => Recurse(
+                            d, action, recursionLevels, [.. relativePathComponents, Path.GetFileName(d)])));
+                    }
+                }
+
+                foreach (var task in tasks)
+                {
+                    await await task;
                 }
             }
-
-            foreach (var task in tasks)
+            finally
             {
-                await await task;
+                tasks.Clear();
+                SimpleObjectPool<List<Task<ValueTask>>>.Return(tasks);
             }
         }
-        finally
-        {
-            tasks.Clear();
-            SimpleObjectPool<List<Task<ValueTask>>>.Return(tasks);
-        }
+
+        return Recurse(dirPath, action, recursionLevels, Array.Empty<string>());
     }
-    public static ValueTask ApplyToAllFilesAsync(string path, Func<FileInfo, ValueTask> action, int recursionLevels = 0)
-        => ApplyToAllFilesAsync(new DirectoryInfo(path), action, recursionLevels);
 
     public static async ValueTask<bool> EqualFileContentsAsync(string path1, string path2)
     {

@@ -31,6 +31,9 @@ class FindSimilarCommand
     public FindSimilarCommand(string srcDirPath, string? dstDirPath, bool dryRun, int recursionLevels,
         int widthSamples, int heightSamples, int pixelDifference)
     {
+        Debug.Assert(Path.IsPathFullyQualified(srcDirPath));
+        Debug.Assert(dstDirPath == null || Path.IsPathFullyQualified(dstDirPath));
+
         this.srcDirPath = srcDirPath;
         this.dstDirPath = dstDirPath;
         this.dryRun = dryRun;
@@ -76,37 +79,41 @@ class FindSimilarCommand
         return 0;
     }
 
-    async ValueTask ProcessFile(FileInfo file)
+    async ValueTask ProcessFile(string path, string[] relativePathComponents)
     {
-        var category = await FileTypeDetector.DetectCategoryFromContent(file.FullName);
+        Debug.Assert(Path.IsPathFullyQualified(path));
+        if (!path.StartsWith(srcDirPath))
+        {
+            Debug.Assert(false);
+            throw new InvalidProgramException("Mismatch between file path and base directory path");
+        }
+
+        var category = await FileTypeDetector.DetectCategoryFromContent(path);
         switch (category)
         {
             case FileCategory.Audio:
-                await ProcessGenericFile(file, audioFilesBySize);
+                await ProcessGenericFile(path, audioFilesBySize);
                 break;
             case FileCategory.Image:
-                await ProcessImageFile(file);
+                await ProcessImageFile(path);
                 break;
             case FileCategory.Video:
-                await ProcessGenericFile(file, videoFilesBySize);
+                await ProcessGenericFile(path, videoFilesBySize);
                 break;
             default:
-#if DEBUG
-                Console.WriteLine($"Skipping unknown file type: '{file.FullName}'");
-#endif
+                Program.WriteLineDebug($"Skipping unknown file type: '{path}'");
                 break;
         }
     }
 
-    async ValueTask ProcessGenericFile(FileInfo file, Dictionary<long, (string?, List<string>?)> filesBySize)
+    async ValueTask ProcessGenericFile(string path, Dictionary<long, (string?, List<string>?)> filesBySize)
     {
-        string path = file.FullName;
-        long size = file.Length;
-
         List<string>? matchingCandidates = null;
         List<string>? similarFound = null;
         try
         {
+            long size = new FileInfo(path).Length;
+
             lock (filesBySize)
             {
                 if (!filesBySize.TryGetValue(size, out var paths))
@@ -154,14 +161,12 @@ class FindSimilarCommand
         }
     }
 
-    async ValueTask ProcessImageFile(FileInfo file)
+    async ValueTask ProcessImageFile(string path)
     {
         List<(string, Rgba32[])>? matchingCandidates = null;
         List<string>? similarFound = null;
         try
         {
-            string path = file.FullName;
-
             Rgba32[] pixels = new Rgba32[sizeSamples];
             await MediaUtils.GetImageResized(path, pixels, imageResizeOptions);
 
@@ -234,9 +239,7 @@ class FindSimilarCommand
 
             if (matchingCandidates.Count == 0)
             {
-#if DEBUG
-                Console.WriteLine($"No similar files found (no potential matches) for {path}");
-#endif
+                Program.WriteLineDebug($"No similar files found (no potential matches) for {path}");
                 return;
             }
 
@@ -269,11 +272,9 @@ class FindSimilarCommand
     {
         if (similarFound.Count == 0)
         {
-#if DEBUG
-            Console.WriteLine(candidates.HasValue ?
+            Program.WriteLineDebug(candidates.HasValue ?
                 $"No similar files found (from {candidates.Value} potential matches) for {path}" :
                 $"No similar files found for {path}");
-#endif
             return;
         }
 

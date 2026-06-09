@@ -1,4 +1,6 @@
-﻿namespace FileOrganizer;
+﻿using System.Diagnostics;
+
+namespace FileOrganizer;
 
 static class Program
 {
@@ -37,6 +39,12 @@ static class Program
             Console.WriteLine();
             PrintUsage();
             return -1;
+        }
+
+        inDirectory = Path.GetFullPath(inDirectory);
+        if (outDirectory != null)
+        {
+            outDirectory = Path.GetFullPath(outDirectory);
         }
 
         switch (args[0])
@@ -204,5 +212,11 @@ static class Program
         Console.WriteLine("  FileOrganizer organize ./Files -o ./FilesSorted");
         Console.WriteLine("  FileOrganizer findsimilar ./Files -r -w 16 -h 16 -d 8");
         Console.WriteLine();
+    }
+
+    [Conditional("DEBUG")]
+    internal static void WriteLineDebug(string message)
+    {
+        Console.WriteLine(message);
     }
 }

@@ -11,16 +11,13 @@ class OrganizeCommand
         AudioMusic,
         AudioRecording,
         AudioRingtone,
-        AudioUnknown,
         ImageDocument,
         ImageMeme,
         ImagePhoto,
         ImageScreenshot,
         ImageWallpaper,
-        ImageUnknown,
         VideoCamera,
         VideoScreenRecording,
-        VideoUnknown,
     }
 
     enum TimeComponents : byte
@@ -59,6 +56,23 @@ class OrganizeCommand
         public readonly bool HasMillisecond => timeComponents >= TimeComponents.Millisecond;
     }
 
+    public const string DirAudioRecordings = "AudioRecordings";
+    public const string DirCamera = "Camera";
+    public const string DirDocuments = "Documents";
+    public const string DirMemes = "Memes";
+    public const string DirMusic = "Music";
+    public const string DirRingtones = "Ringtones";
+    public const string DirScreenCaptures = "ScreenCaptures";
+    public const string DirWallpapers = "Wallpapers";
+
+    public const string DirUnknown = "Unknown";
+
+    static readonly Regex regexYear1900To2099 = new(@"\A(19|20)\d{2}\z");
+    static readonly Regex regexMonth = new(@"\A((0?[1-9])|(1[0-2]))\z");
+    static readonly Regex regexDay = new(@"\A((0?[1-9])|([12][0-9])|(3[01]))\z");
+    static readonly Regex regexPrefixUndDateUndTimeSuffExt =
+        new(@"\A[a-zA-Z0-9]+_\d{8}_\d{6}(\d{3})?([_.~-][a-zA-Z0-9_.-]+)?\.[a-zA-Z0-9]+\z");
+
     readonly string srcDirPath;
     readonly string dstDirPath;
     readonly bool dryRun;
@@ -66,6 +80,9 @@ class OrganizeCommand
 
     public OrganizeCommand(string srcDirPath, string dstDirPath, bool dryRun, int recursionLevels)
     {
+        Debug.Assert(Path.IsPathFullyQualified(srcDirPath));
+        Debug.Assert(Path.IsPathFullyQualified(dstDirPath));
+
         this.srcDirPath = srcDirPath;
         this.dstDirPath = dstDirPath;
         this.dryRun = dryRun;
@@ -85,162 +102,164 @@ class OrganizeCommand
         return 0;
     }
 
-    async ValueTask ProcessFile(FileInfo file)
+    ValueTask ProcessFile(string path, string[] relativePathComponents)
     {
-        static string GetDirectoryWithYear(in OrganizationDetails details, string? parentDir = null)
+        Debug.Assert(Path.IsPathFullyQualified(path));
+        if (!path.StartsWith(srcDirPath))
         {
-            return Path.Join(parentDir, details.HasYear ? $"{details.year:D4}" : $"Unknown");
+            Debug.Assert(false);
+            throw new InvalidProgramException("Mismatch between file path and base directory path");
+        }
+        Debug.Assert(relativePathComponents.Length >= 1);
+
+        var trimmedPathComponents = IgnoreTopDirectories(relativePathComponents, [DirUnknown]);
+
+        // If it is inside a directory, it must be a category directory
+        if (trimmedPathComponents.Length >= 2)
+        {
+            return trimmedPathComponents[0] switch
+            {
+                DirCamera => ProcessCameraFile(path, relativePathComponents),
+
+                // Not implemented yet:
+                DirAudioRecordings or
+                DirDocuments or
+                DirMemes or
+                DirMusic or
+                DirRingtones or
+                DirScreenCaptures or
+                DirWallpapers or
+                _ => ProcessUnknownFile(path), // Not in a recognized category directory
+            };
         }
 
-        string origPath = file.FullName;
+        // The file is not inside a directory, so we try to detect the category
+        GetFileNameAndExtension(relativePathComponents, out string fileName, out ReadOnlySpan<char> fileExtension);
+        OrganizationDetails details = GetOrganizationDetails(path, fileName, fileExtension);
+        return details.category switch
+        {
+            OrganizationCategory.ImagePhoto or OrganizationCategory.VideoCamera
+                => ProcessCameraFile(path, relativePathComponents, details),
 
+            // Not implemented yet:
+            OrganizationCategory.AudioMusic or
+            OrganizationCategory.AudioRecording or
+            OrganizationCategory.AudioRingtone or
+            OrganizationCategory.ImageDocument or
+            OrganizationCategory.ImageMeme or
+            OrganizationCategory.ImageScreenshot or OrganizationCategory.VideoScreenRecording or
+            OrganizationCategory.ImageWallpaper or
+            _ => ProcessUnknownFile(path), // Not a recognized category
+        };
+    }
+
+    async ValueTask ProcessCameraFile(
+        string path, string[] relativePathComponents, OrganizationDetails? organizationDetails = null)
+    {
         try
         {
-            string origFileName = file.Name;
+            GetFileNameAndExtension(relativePathComponents, out string fileName, out ReadOnlySpan<char> fileExtension);
 
-            string fileName = origFileName;
-            string subDirPath;
-            bool preserveDirStructure = true;
+            if (fileExtension.Length < 1)
+            {
+                Program.WriteLineDebug($"Skipping unknown file type: '{path}'");
+                return;
+            }
 
-            var details = await GetOrganizationDetails(origPath, fileName);
+            var trimmedPathComponents = IgnoreTopDirectories(relativePathComponents, [DirCamera, DirUnknown]);
+
+            int len = trimmedPathComponents.Length;
+            bool shouldProcess = len <= 4 &&
+                (len <= 1 || IsMatch(regexYear1900To2099, trimmedPathComponents[0])) &&
+                (len <= 2 || trimmedPathComponents[1] == DirUnknown || IsMatch(regexMonth, trimmedPathComponents[1])) &&
+                (len <= 3 || trimmedPathComponents[2] == DirUnknown || IsMatch(regexDay, trimmedPathComponents[2]));
+
+            if (!shouldProcess)
+            {
+                Program.WriteLineDebug($"Skipping file in custom location: '{path}'");
+                return;
+            }
+
+            var details = organizationDetails ?? GetOrganizationDetails(path, fileName, fileExtension);
 
             if (details.platform != null || details.author != null)
             {
                 // TODO: Choose what to do with files from Facebook, WhatsApp, Google Drive, etc.
-                Console.WriteLine($"Skipping file from {details.platform}/{details.author}: '{origPath}'");
+                Console.WriteLine($"Skipping file from {details.platform}/{details.author}: '{path}'");
                 return;
             }
 
-            ReadOnlySpan<char> origExtension = Path.GetExtension(origFileName.AsSpan());
-
-            switch (details.category)
+            if (details.category != OrganizationCategory.ImagePhoto &&
+                details.category != OrganizationCategory.VideoCamera)
             {
-                case OrganizationCategory.AudioMusic:
-                    subDirPath = "Music";
-                    break;
-                case OrganizationCategory.AudioRecording:
-                    subDirPath = GetDirectoryWithYear(details, "AudioRecordings");
-                    preserveDirStructure = false;
-                    // TODO: Change the fileName
-                    break;
-                case OrganizationCategory.AudioRingtone:
-                    subDirPath = "Ringtones";
-                    break;
-                case OrganizationCategory.ImageDocument:
-                    subDirPath = "Documents";
-                    break;
-                case OrganizationCategory.ImageMeme:
-                    subDirPath = "Memes";
-                    break;
-                case OrganizationCategory.ImagePhoto or OrganizationCategory.VideoCamera:
-                    subDirPath = GetDirectoryWithYear(details, "Camera");
-                    preserveDirStructure = false;
-                    string prefix = details.category == OrganizationCategory.ImagePhoto ? "IMG_" : "VID_";
-                    fileName = $"{prefix}{details.year:D4}{details.month:D2}{details.day:D2}_" +
-                        $"{details.hour:D2}{details.minute:D2}{details.second:D2}{details.millisecond:D3}" +
-                        $"{details.suffix}{origExtension}";
-                    break;
-                case OrganizationCategory.ImageScreenshot or OrganizationCategory.VideoScreenRecording:
-                    subDirPath = GetDirectoryWithYear(details, "ScreenCaptures");
-                    // TODO: Change the fileName
-                    break;
-                case OrganizationCategory.ImageWallpaper:
-                    subDirPath = "Wallpapers";
-                    break;
-                case OrganizationCategory.AudioUnknown:
-                    subDirPath = "AudioOther";
-                    break;
-                case OrganizationCategory.ImageUnknown:
-                    subDirPath = "ImagesOther";
-                    break;
-                case OrganizationCategory.VideoUnknown:
-                    subDirPath = "VideosOther";
-                    break;
-                default:
-#if DEBUG
-                    Console.WriteLine($"Skipping unknown file type: '{origPath}'");
-#endif
-                    return;
-            }
-
-            if (origExtension.Length < 1 && fileName != origFileName)
-            {
-                Console.Error.WriteLine(
-                    $"Illegal attempt to change the name of a file from '{origFileName}' to '{fileName}' (file names without extensions must not change): '{origPath}'");
-                Debug.Assert(false);
+                Program.WriteLineDebug($"Skipping unknown file type: '{path}'");
                 return;
             }
 
-            if (preserveDirStructure)
-            {
-                string origDirPath = Path.GetDirectoryName(origPath) ?? srcDirPath;
-                string originalSubDirPath = Path.GetRelativePath(srcDirPath, origDirPath);
-                subDirPath = originalSubDirPath.StartsWith(subDirPath) ?
-                    originalSubDirPath :
-                    Path.Join(subDirPath, originalSubDirPath);
-            }
+            string prefix = details.category == OrganizationCategory.ImagePhoto ? "IMG_" : "VID_";
+            string newFileName = $"{prefix}{details.year:D4}{details.month:D2}{details.day:D2}_" +
+                $"{details.hour:D2}{details.minute:D2}{details.second:D2}{details.millisecond:D3}" +
+                $"{details.suffix}{fileExtension}";
 
-            string newDirPath = Path.Join(dstDirPath, subDirPath);
-            string newPath = Path.Join(newDirPath, fileName);
-
-            if (FileUtils.PathsReferToSameLocation(newPath, origPath))
-            {
-#if DEBUG
-                Console.WriteLine($"Skipping file '{origPath}': already in the correct location");
-#endif
-                return;
-            }
-
-            if (Path.Exists(newPath))
-            {
-                if (!await FileUtils.EqualFileContentsAsync(origPath, newPath))
-                {
-                    Console.Error.WriteLine(
-                        $"Unable to move file '{origPath}': another file already exists at destination '{newPath}'");
-                    return;
-                }
-
-                // Delete duplicate file that would be moved to the same destination of an existing similar file
-                bool deleted = dryRun ?
-                    true :
-                    FileUtils.SafeDeleteIfNotSameFile(origPath, newPath, checkPaths: false);
-                if (deleted)
-                {
-                    Console.WriteLine(
-                        $"Deleted duplicate file '{origPath}': the same file already exists at '{newPath}'");
-                }
-                else
-                {
-#if DEBUG
-                    Console.WriteLine($"Skipping file '{origPath}': already in the correct location");
-#endif
-                }
-                return;
-            }
-
-            if (!dryRun)
-            {
-                Directory.CreateDirectory(newDirPath);
-                file.MoveTo(newPath, false);
-            }
-            Console.WriteLine($"Moved file '{origPath}' to '{newPath}'");
+            // Camera/2020/IMG_20201231_235959999.jpg
+            await MoveFileToDestinationDir(path, [DirCamera, GetDirectoryNameFromYear(details), newFileName]);
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error organizing file '{origPath}': {ex.Message}");
-            return;
+            Console.Error.WriteLine($"Error organizing file '{path}': {ex.Message}");
         }
     }
 
-    static readonly Regex regexPrefixUndDateUndTimeSuffExt =
-        new(@"\A[a-zA-Z0-9]+_\d{8}_\d{6}(\d{3})?([_.~-][a-zA-Z0-9_.-]+)?\.[a-zA-Z0-9]+\z");
+    ValueTask ProcessUnknownFile(string path)
+    {
+        Program.WriteLineDebug($"Skipping unknown file category: '{path}'");
+        return ValueTask.CompletedTask;
+    }
 
-    async ValueTask<OrganizationDetails> GetOrganizationDetails(string origPath, string fileName)
+    void GetFileNameAndExtension(string[] pathComponents, out string fileName, out ReadOnlySpan<char> fileExtension)
+    {
+        fileName = pathComponents[pathComponents.Length - 1];
+        fileExtension = Path.GetExtension(fileName.AsSpan());
+    }
+
+    ReadOnlySpan<string> IgnoreTopDirectories(ReadOnlySpan<string> pathComponents, ReadOnlySpan<string> ignoreValues)
+    {
+        int ignoreValuesLen = ignoreValues.Length;
+        Debug.Assert(ignoreValuesLen > 0);
+
+        // Iterate over the path components, skipping the last (file name)
+        int i = 0;
+        for (int limit = pathComponents.Length - 1; i < limit; i++)
+        {
+            string component = pathComponents[i];
+            Debug.Assert(!string.IsNullOrEmpty(component));
+
+            bool found = false;
+            for (int j = 0; j < ignoreValuesLen; j++)
+            {
+                if (component.Equals(ignoreValues[j], StringComparison.OrdinalIgnoreCase))
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                break;
+            }
+        }
+
+        Debug.Assert(pathComponents.Slice(i).Length > 0);
+        return pathComponents.Slice(i);
+    }
+
+    OrganizationDetails GetOrganizationDetails(
+        string path, ReadOnlySpan<char> fileName, ReadOnlySpan<char> fileExtension)
     {
         OrganizationDetails result = new();
 
-        int indexExt = fileName.LastIndexOf('.');
-        ReadOnlySpan<char> ext = indexExt >= 0 ? fileName.AsSpan(indexExt + 1) : [];
+        int indexExt = fileName.Length - fileExtension.Length;
+        ReadOnlySpan<char> ext = fileExtension.Length > 0 ? fileExtension.Slice(1) : fileExtension;
 
         // TODO: Detect files that are from Facebook, WhatsApp, Google Drive, etc., and fill in the plarform and author
         result.platform = result.author = null;
@@ -251,14 +270,14 @@ class OrganizeCommand
 
             int indexUnd = fileName.IndexOf('_');
             Debug.Assert(indexUnd > 0);
-            ReadOnlySpan<char> prefix = fileName.AsSpan(0, indexUnd);
+            ReadOnlySpan<char> prefix = fileName.Slice(0, indexUnd);
 
             bool hasMillisecond = char.IsAsciiDigit(fileName[indexUnd + 16]);
-            ReadOnlySpan<char> dateStr = fileName.AsSpan(indexUnd + 1, 8);
-            ReadOnlySpan<char> timeStr = fileName.AsSpan(indexUnd + 10, hasMillisecond ? 9 : 6);
+            ReadOnlySpan<char> dateStr = fileName.Slice(indexUnd + 1, 8);
+            ReadOnlySpan<char> timeStr = fileName.Slice(indexUnd + 10, hasMillisecond ? 9 : 6);
 
             int sufStart = indexUnd + 10 + timeStr.Length;
-            ReadOnlySpan<char> suffix = sufStart < indexExt ? fileName.AsSpan(sufStart, indexExt - sufStart) : [];
+            ReadOnlySpan<char> suffix = sufStart < indexExt ? fileName.Slice(sufStart, indexExt - sufStart) : [];
 
             switch (ext)
             {
@@ -291,20 +310,8 @@ class OrganizeCommand
             }
         }
 
-        var fileCategory = await FileTypeDetector.DetectCategoryFromContent(origPath);
-        if (result.category == OrganizationCategory.Unknown || !CategoriesMatch(result.category, fileCategory))
-        {
-            result.category = fileCategory switch
-            {
-                FileCategory.Audio => OrganizationCategory.AudioUnknown,
-                FileCategory.Image => OrganizationCategory.ImageUnknown,
-                FileCategory.Video => OrganizationCategory.VideoUnknown,
-                _ => default,
-            };
-        }
-
         if (!result.HasYear && result.category != OrganizationCategory.Unknown &&
-            MetadataUtils.TryGetDateTaken(origPath, out var dt))
+            MetadataUtils.TryGetDateTaken(path, out var dt))
         {
             result.year = (short)dt.Year;
             result.month = (byte)dt.Month;
@@ -322,37 +329,67 @@ class OrganizeCommand
         return result;
     }
 
-    static bool CategoriesMatch(OrganizationCategory category, FileCategory fileCategory)
+    static string GetDirectoryNameFromYear(in OrganizationDetails details)
     {
-        switch (category)
-        {
-            case OrganizationCategory.AudioMusic:
-            case OrganizationCategory.AudioRecording:
-            case OrganizationCategory.AudioRingtone:
-            case OrganizationCategory.AudioUnknown:
-                return fileCategory == FileCategory.Audio;
-            case OrganizationCategory.ImageDocument:
-            case OrganizationCategory.ImageMeme:
-            case OrganizationCategory.ImagePhoto:
-            case OrganizationCategory.ImageScreenshot:
-            case OrganizationCategory.ImageUnknown:
-            case OrganizationCategory.ImageWallpaper:
-                return fileCategory == FileCategory.Image;
-            case OrganizationCategory.VideoCamera:
-            case OrganizationCategory.VideoScreenRecording:
-            case OrganizationCategory.VideoUnknown:
-                return fileCategory == FileCategory.Video;
-            case OrganizationCategory.Unknown:
-                return fileCategory == FileCategory.Unknown;
-            default:
-                //This should never happen, all the possible enum values must be be handled above
-                throw new InvalidOperationException("Program error");
-        }
+        return details.HasYear ? $"{details.year:D4}" : DirUnknown;
     }
 
-    static bool IsMatch(Regex r, string s)
+    ValueTask MoveFileToDestinationDir(string srcPath, ReadOnlySpan<string> relativePathComponents)
     {
-        var m = r.Match(s);
-        return m.Success && m.Length == s.Length;
+        string dstPath = Path.Join([dstDirPath, .. relativePathComponents]);
+        return MoveFile(srcPath, dstPath);
+    }
+
+    async ValueTask MoveFile(string srcPath, string dstPath)
+    {
+        Debug.Assert(Path.IsPathFullyQualified(srcPath));
+
+        dstPath = Path.GetFullPath(dstPath);
+        Debug.Assert(Path.IsPathFullyQualified(dstPath));
+
+        if (FileUtils.PathsReferToSameLocation(srcPath, dstPath))
+        {
+            Program.WriteLineDebug($"Skipping file '{srcPath}': already in the correct location");
+            return;
+        }
+
+        if (Path.Exists(dstPath))
+        {
+            if (!await FileUtils.EqualFileContentsAsync(srcPath, dstPath))
+            {
+                Console.Error.WriteLine(
+                    $"Unable to move file '{srcPath}': another file already exists at destination '{dstPath}'");
+                return;
+            }
+
+            // Delete duplicate file that would be moved to the same destination of an existing similar file
+            bool deleted = dryRun ?
+                true :
+                FileUtils.SafeDeleteIfNotSameFile(srcPath, dstPath, checkPaths: false);
+            if (deleted)
+            {
+                Console.WriteLine($"Deleted duplicate file '{srcPath}': the same file already exists at '{dstPath}'");
+            }
+            else
+            {
+                Console.Error.WriteLine(
+                    $"Unable to move file '{srcPath}': another file already exists at destination '{dstPath}'");
+            }
+            return;
+        }
+
+        if (!dryRun)
+        {
+            string? dstDir = Path.GetDirectoryName(dstPath);
+            Debug.Assert(dstDir != null);
+            Directory.CreateDirectory(dstDir);
+            File.Move(srcPath, dstPath, false);
+        }
+        Console.WriteLine($"Moved file '{srcPath}' to '{dstPath}'");
+    }
+
+    static bool IsMatch(Regex r, ReadOnlySpan<char> s)
+    {
+        return r.IsMatch(s, 0);
     }
 }

@@ -64,18 +64,22 @@ namespace FileOrganizer
 
         public static bool TryGetDateTaken(string path, out DateTime dateTaken)
         {
-            // Note: Despite its class name, ImageMetadataReader.ReadMetadata also reads metadata from some audio and
-            // video files, not only from images
-            var metadataDirs = ImageMetadataReader.ReadMetadata(path);
-
-            if (TryGetExifDateTaken(metadataDirs, out dateTaken) ||
-                TryGetIptcDateTaken(metadataDirs, out dateTaken) ||
-                TryGetXmpDateTaken(metadataDirs, out dateTaken) ||
-                TryGetDateFromMatchingTags(metadataDirs, out dateTaken))
+            try
             {
-                dateTaken = dateTaken.ToUniversalTime();
-                return true;
+                // Note: Despite its class name, ImageMetadataReader.ReadMetadata also reads metadata from some audio and
+                // video files, not only from images
+                var metadataDirs = ImageMetadataReader.ReadMetadata(path);
+
+                if (TryGetExifDateTaken(metadataDirs, out dateTaken) ||
+                    TryGetIptcDateTaken(metadataDirs, out dateTaken) ||
+                    TryGetXmpDateTaken(metadataDirs, out dateTaken) ||
+                    TryGetDateFromMatchingTags(metadataDirs, out dateTaken))
+                {
+                    dateTaken = dateTaken.ToUniversalTime();
+                    return true;
+                }
             }
+            catch { }
 
             dateTaken = default;
             return false;
@@ -141,7 +145,7 @@ namespace FileOrganizer
             {
                 foreach (var (name, raw) in metadataDir.GetXmpProperties())
                 {
-                    string tagName = name.ToLower(CultureInfo.InvariantCulture).Trim();
+                    string tagName = name.ToLowerInvariant().Trim();
                     if (DateTagNamesPriorities.TryGetValue(tagName, out int priority) && priority < dateTagPriority &&
                         TryParseDate(raw, out DateTime dt))
                     {
@@ -162,7 +166,7 @@ namespace FileOrganizer
             {
                 foreach (var tag in metadataDir.Tags)
                 {
-                    string tagName = tag.Name.ToLower(CultureInfo.InvariantCulture).Trim();
+                    string tagName = tag.Name.ToLowerInvariant().Trim();
                     if (DateTagNamesPriorities.TryGetValue(tagName, out int priority) && priority < dateTagPriority &&
                         TryGetDateFromTag(metadataDir, tag.Type, out DateTime dt))
                     {
