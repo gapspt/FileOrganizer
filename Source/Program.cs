@@ -11,6 +11,8 @@ static class Program
     static int widthSamples = 16;
     static int heightSamples = 16;
     static int pixelDifference = 8;
+    static bool outClusterSimilar = true;
+    static bool outKeepHierarchy = true;
 
     static async Task<int> Main(string[] args)
     {
@@ -53,7 +55,8 @@ static class Program
                 return await new OrganizeCommand(inDirectory, outDirectory ?? inDirectory, dryRun, recursionLevels).Run();
             case "similar":
                 return await new FindSimilarCommand(
-                    inDirectory, outDirectory, dryRun, recursionLevels, widthSamples, heightSamples, pixelDifference).Run();
+                    inDirectory, outDirectory, dryRun, recursionLevels, widthSamples, heightSamples, pixelDifference,
+                    outClusterSimilar, outKeepHierarchy).Run();
             case "help":
                 PrintUsage();
                 return 0;
@@ -119,6 +122,25 @@ static class Program
                             return false;
                         }
                         continue;
+                    case "--outStructure" or "-os":
+                        if (!GetKeyValueString(ref i, out string outStructure))
+                        {
+                            return false;
+                        }
+                        foreach (char c in outStructure)
+                        {
+                            switch (c)
+                            {
+                                case 'c': outClusterSimilar = true; break;
+                                case 'j': outClusterSimilar = false; break;
+                                case 'k': outKeepHierarchy = true; break;
+                                case 'f': outKeepHierarchy = false; break;
+                                default:
+                                    Console.Error.WriteLine($"Invalid value for {arg}: {args[i]}");
+                                    return false;
+                            }
+                        }
+                        continue;
                     case "--widthSamples" or "-w":
                         if (!ParseKeyValueInt(ref i, out widthSamples, 1, 512))
                         {
@@ -172,6 +194,8 @@ static class Program
         Console.WriteLine($"widthSamples={widthSamples}");
         Console.WriteLine($"heightSamples={heightSamples}");
         Console.WriteLine($"pixelDifference={pixelDifference}");
+        Console.WriteLine($"outClusterSimilar={outClusterSimilar}");
+        Console.WriteLine($"outKeepHierarchy={outKeepHierarchy}");
         Console.WriteLine();
 #endif
 
@@ -202,6 +226,15 @@ static class Program
         Console.WriteLine("                                are found to be similar to any other one.");
         Console.WriteLine("                                If not provided, no files will be moved, only");
         Console.WriteLine("                                their original path will be reported.");
+        Console.WriteLine("  --outStructure, -os [c|j|k|f] Output path structure (default ck).");
+        Console.WriteLine("                                c (cluster) or j (join):");
+        Console.WriteLine("                                Use separate subdirectories for similar files");
+        Console.WriteLine("                                clusters, or use the output directory directly.");
+        Console.WriteLine("                                k (keep) or f (flat):");
+        Console.WriteLine("                                Keep the relative path to the output directory");
+        Console.WriteLine("                                the same as the relative path to the input");
+        Console.WriteLine("                                directory, or flatten the hierarchy and move all");
+        Console.WriteLine("                                similar files to the same directory.");
         Console.WriteLine("  --widthSamples, -w <1-512>    Number of width samples for image files");
         Console.WriteLine("                                (default 16, or height samples if provided).");
         Console.WriteLine("  --heightSamples, -h <1-512>   Number of height samples for image files");

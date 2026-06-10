@@ -12,6 +12,8 @@ class FindSimilarCommand
     readonly bool dryRun;
     readonly int recursionLevels;
     readonly int pixelDifference;
+    readonly bool outClusterSimilar;
+    readonly bool outKeepHierarchy;
 
     readonly int sizeSamples;
     readonly ResizeOptions imageResizeOptions;
@@ -29,7 +31,7 @@ class FindSimilarCommand
     readonly StringBuilder stringBuilder = new();
 
     public FindSimilarCommand(string srcDirPath, string? dstDirPath, bool dryRun, int recursionLevels,
-        int widthSamples, int heightSamples, int pixelDifference)
+        int widthSamples, int heightSamples, int pixelDifference, bool outClusterSimilar, bool outKeepHierarchy)
     {
         Debug.Assert(Path.IsPathFullyQualified(srcDirPath));
         Debug.Assert(dstDirPath == null || Path.IsPathFullyQualified(dstDirPath));
@@ -39,6 +41,8 @@ class FindSimilarCommand
         this.dryRun = dryRun;
         this.recursionLevels = recursionLevels;
         this.pixelDifference = pixelDifference;
+        this.outClusterSimilar = outClusterSimilar;
+        this.outKeepHierarchy = outKeepHierarchy;
 
         sizeSamples = widthSamples * heightSamples;
         imageResizeOptions = new()
@@ -371,8 +375,12 @@ class FindSimilarCommand
             {
                 try
                 {
-                    string relativePath = Path.GetRelativePath(srcDirPath, path);
-                    string newPath = Path.Join(dstDirPath, $"Similar_{clusterId}", relativePath);
+                    string relativePath = outKeepHierarchy ?
+                        Path.GetRelativePath(srcDirPath, path) :
+                        Path.GetFileName(path);
+                    string newPath = outClusterSimilar ?
+                        Path.Join(dstDirPath, $"Similar_{clusterId}", relativePath) :
+                        Path.Join(dstDirPath, relativePath);
 
                     if (Path.Exists(newPath))
                     {
