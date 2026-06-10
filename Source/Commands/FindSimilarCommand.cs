@@ -24,7 +24,7 @@ class FindSimilarCommand
     readonly Dictionary<long, (string?, List<string>?)> audioFilesBySize = new();
     readonly Dictionary<long, (string?, List<string>?)> videoFilesBySize = new();
 
-    readonly HashSet<string> allSimilarFiles = new();
+    readonly Dictionary<string, List<string>> similarFilesClusters = new();
 
     readonly StringBuilder stringBuilder = new();
 
@@ -71,7 +71,7 @@ class FindSimilarCommand
 
         await FileUtils.ApplyToAllFilesAsync(srcDirPath, ProcessFile, recursionLevels);
 
-        if (dstDirPath != null && allSimilarFiles.Count > 0)
+        if (dstDirPath != null && similarFilesClusters.Count > 0)
         {
             MoveAllSimilarFiles();
         }
@@ -119,6 +119,8 @@ class FindSimilarCommand
                 if (!filesBySize.TryGetValue(size, out var paths))
                 {
                     filesBySize[size] = (path, null);
+
+                    HandleSimilarFilesFound(path, null, 0);
                     return;
                 }
 
@@ -239,7 +241,7 @@ class FindSimilarCommand
 
             if (matchingCandidates.Count == 0)
             {
-                Program.WriteLineDebug($"No similar files found (no potential matches) for {path}");
+                HandleSimilarFilesFound(path, null, 0);
                 return;
             }
 
@@ -268,26 +270,60 @@ class FindSimilarCommand
         }
     }
 
-    void HandleSimilarFilesFound(string path, IList<string> similarFound, int? candidates = null)
+    void HandleSimilarFilesFound(string path, IList<string>? similarFound, int candidates)
     {
-        if (similarFound.Count == 0)
+        if (candidates == 0)
         {
-            Program.WriteLineDebug(candidates.HasValue ?
-                $"No similar files found (from {candidates.Value} potential matches) for {path}" :
-                $"No similar files found for {path}");
+            Debug.Assert(similarFound == null || similarFound.Count == 0);
+            Program.WriteLineDebug($"No similar files found (no potential matches) for {path}");
+            return;
+        }
+        if (similarFound == null || similarFound.Count == 0)
+        {
+            Program.WriteLineDebug($"No similar files found (from {candidates} potential matches) for {path}");
             return;
         }
 
         if (dstDirPath != null)
         {
-            lock (allSimilarFiles)
+            lock (similarFilesClusters)
             {
-                allSimilarFiles.Add(path);
+                if (!similarFilesClusters.TryGetValue(path, out var cluster))
+                {
+                    cluster = SimpleObjectPool<List<string>>.Get();
+                    cluster.Add(path);
+                    similarFilesClusters.Add(path, cluster);
+                }
+
+                // Merge with existing clusters
                 foreach (string otherPath in similarFound)
                 {
-                    allSimilarFiles.Add(otherPath);
+                    if (!similarFilesClusters.TryGetValue(otherPath, out var otherCluster))
+                    {
+                        // No cluster for the other path yet
+                        cluster.Add(otherPath);
+                        similarFilesClusters.Add(otherPath, cluster);
+                        continue;
+                    }
+
+                    if (otherCluster == cluster)
+                    {
+                        continue; // Already merged
+                    }
+
+                    // Merge with existing cluster
+                    cluster.AddRange(otherCluster);
+                    foreach (var otherClusterPath in otherCluster)
+                    {
+                        similarFilesClusters[otherClusterPath] = cluster;
+                    }
+                    otherCluster.Clear();
+                    SimpleObjectPool<List<string>>.Return(otherCluster);
                 }
-            }
+
+                Debug.Assert(cluster.Count >= 2);
+                Debug.Assert(cluster.ToHashSet().Count == cluster.Count, "Cluster must not have duplicates");
+            } // lock (similarFilesClusters)
         }
 
         lock (stringBuilder)
@@ -295,12 +331,9 @@ class FindSimilarCommand
             stringBuilder.Append(similarFound.Count);
             stringBuilder.Append(" similar files found ");
 #if DEBUG
-            if (candidates.HasValue)
-            {
-                stringBuilder.Append("(from ");
-                stringBuilder.Append(candidates.Value);
-                stringBuilder.Append(" potential matches) ");
-            }
+            stringBuilder.Append("(from ");
+            stringBuilder.Append(candidates);
+            stringBuilder.Append(" potential matches) ");
 #endif
             stringBuilder.Append("for ");
             stringBuilder.Append(path);
@@ -316,45 +349,61 @@ class FindSimilarCommand
 
     void MoveAllSimilarFiles()
     {
-        Debug.Assert(dstDirPath != null && allSimilarFiles.Count > 0);
+        Debug.Assert(dstDirPath != null && similarFilesClusters.Count > 0);
 
+        int clusters = 0;
+        int files = 0;
         int successes = 0;
-        foreach (string path in allSimilarFiles)
+        int clusterId = 0;
+        foreach (var cluster in similarFilesClusters.Values)
         {
-            try
+            if (cluster.Count == 0)
             {
-                string relativePath = Path.GetRelativePath(srcDirPath, path);
-                string newPath = Path.Join(dstDirPath, relativePath);
-
-                if (Path.Exists(newPath))
-                {
-                    Console.Error.WriteLine($"Another file already exists at destination: '{newPath}'");
-                    continue;
-                }
-
-                string? destinationDirectory = Path.GetDirectoryName(newPath);
-                Debug.Assert(destinationDirectory != null);
-                if (!dryRun)
-                {
-                    Directory.CreateDirectory(destinationDirectory);
-                    File.Move(path, newPath, false);
-                }
-                else
-                {
-                    Console.WriteLine($"Moved similar file '{path}' to '{newPath}'");
-                }
-                successes++;
+                continue; // Cluster already handled
             }
-            catch (Exception ex)
+            Debug.Assert(cluster.Count >= 2);
+
+            clusters++;
+            files += cluster.Count;
+            clusterId++;
+
+            foreach (var path in cluster)
             {
-                Console.Error.WriteLine($"Error moving similar file '{path}': {ex.Message}");
+                try
+                {
+                    string relativePath = Path.GetRelativePath(srcDirPath, path);
+                    string newPath = Path.Join(dstDirPath, $"Similar_{clusterId}", relativePath);
+
+                    if (Path.Exists(newPath))
+                    {
+                        Console.Error.WriteLine($"Another file already exists at destination: '{newPath}'");
+                        continue;
+                    }
+
+                    string? destinationDirectory = Path.GetDirectoryName(newPath);
+                    Debug.Assert(destinationDirectory != null);
+                    if (!dryRun)
+                    {
+                        Directory.CreateDirectory(destinationDirectory);
+                        File.Move(path, newPath, false);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Moved similar file '{path}' to '{newPath}'");
+                    }
+                    successes++;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error moving similar file '{path}': {ex.Message}");
+                }
             }
+            cluster.Clear(); // The same cluster will appear multiple times, but we want to handle it only once
         }
 
-        int fails = allSimilarFiles.Count - successes;
-        Console.WriteLine(
-            fails == 0 ?
-            $"Moved all {successes} similar files to '{dstDirPath}'" :
-            $"Moved {successes} out of {allSimilarFiles.Count} ({fails} failed) similar files to '{dstDirPath}'");
+        int fails = files - successes;
+        Console.WriteLine(fails == 0 ?
+            $"Moved all {files} similar files ({clusters} clusters) to '{dstDirPath}'" :
+            $"Moved {successes} out of {files} ({fails} failed) similar files ({clusters} clusters) to '{dstDirPath}'");
     }
 }
