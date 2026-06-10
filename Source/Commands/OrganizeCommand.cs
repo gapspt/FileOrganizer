@@ -67,11 +67,26 @@ class OrganizeCommand
 
     public const string DirUnknown = "Unknown";
 
-    static readonly Regex regexYear1900To2099 = new(@"\A(19|20)\d{2}\z");
+    static readonly Regex regexYear = new(@"\A(19|20)\d{2}\z");
     static readonly Regex regexMonth = new(@"\A((0?[1-9])|(1[0-2]))\z");
     static readonly Regex regexDay = new(@"\A((0?[1-9])|([12][0-9])|(3[01]))\z");
-    static readonly Regex regexPrefixUndDateUndTimeSuffExt =
-        new(@"\A[a-zA-Z0-9]+_\d{8}_\d{6}(\d{3})?([_.~-][a-zA-Z0-9_.-]+)?\.[a-zA-Z0-9]+\z");
+    static readonly Regex regexDateUndTimeSuffExt = new(@"\A" +
+        @"(19|20)\d{2}((0[1-9])|(1[0-2]))(([0-2][0-9])|(3[01]))_" +
+        @"(([01][0-9])|(2[0-3]))[0-5][0-9][0-5][0-9](\d{3})?" +
+        @"([_.~-][a-zA-Z0-9_.-]+)?" +
+        @"\.[a-zA-Z0-9]+" +
+        @"\z");
+    static readonly Regex regexPrefixUndDateUndTimeSuffExt = new(@"\A" +
+        @"[a-zA-Z][a-zA-Z0-9]*_" +
+        @"(19|20)\d{2}((0[1-9])|(1[0-2]))(([0-2][0-9])|(3[01]))_" +
+        @"(([01][0-9])|(2[0-3]))[0-5][0-9][0-5][0-9](\d{3})?" +
+        @"([_.~-][a-zA-Z0-9_.-]+)?" +
+        @"\.[a-zA-Z0-9]+" +
+        @"\z");
+    static readonly Regex regexPrefixUnd4DigitsSuffExt = new(@"\A" +
+        @"[a-zA-Z][a-zA-Z0-9]*_\d{4}" +
+        @"([_.~-][a-zA-Z0-9_.-]+)?" +
+        @"\.[a-zA-Z0-9]+\z");
 
     readonly string srcDirPath;
     readonly string dstDirPath;
@@ -122,7 +137,10 @@ class OrganizeCommand
                         break;
                 }
             }
-            FileUtils.DeleteAllEmptySubDirectories(d, alsoDeleteSubdir);
+            if (!dryRun)
+            {
+                FileUtils.DeleteAllEmptySubDirectories(d, alsoDeleteSubdir);
+            }
         }
 
         return 0;
@@ -137,6 +155,11 @@ class OrganizeCommand
             throw new InvalidProgramException("Mismatch between file path and base directory path");
         }
         Debug.Assert(relativePathComponents.Length >= 1);
+
+        if (DeleteIfUnnecessaryFile(path, relativePathComponents))
+        {
+            return ValueTask.CompletedTask;
+        }
 
         var trimmedPathComponents = IgnoreTopDirectories(relativePathComponents, [DirUnknown]);
 
@@ -179,6 +202,40 @@ class OrganizeCommand
         };
     }
 
+    bool DeleteIfUnnecessaryFile(string path, string[] relativePathComponents)
+    {
+        bool shouldDelete = false;
+        try
+        {
+            switch (relativePathComponents[relativePathComponents.Length - 1])
+            {
+                case ".nomedia":
+                    shouldDelete = new FileInfo(path).Length == 0;
+                    break;
+            }
+        }
+        catch { }
+
+        if (!shouldDelete)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!dryRun)
+            {
+                File.Delete(path);
+            }
+            Console.WriteLine($"Deleted unnecessary file '{path}'");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error deleting unnecessary file '{path}': {ex.Message}");
+        }
+        return true;
+    }
+
     async ValueTask ProcessCameraFile(
         string path, string[] relativePathComponents, OrganizationDetails? organizationDetails = null)
     {
@@ -196,7 +253,7 @@ class OrganizeCommand
 
             int len = trimmedPathComponents.Length;
             bool shouldProcess = len <= 4 &&
-                (len <= 1 || IsMatch(regexYear1900To2099, trimmedPathComponents[0])) &&
+                (len <= 1 || IsMatch(regexYear, trimmedPathComponents[0])) &&
                 (len <= 2 || trimmedPathComponents[1] == DirUnknown || IsMatch(regexMonth, trimmedPathComponents[1])) &&
                 (len <= 3 || trimmedPathComponents[2] == DirUnknown || IsMatch(regexDay, trimmedPathComponents[2]));
 
@@ -208,13 +265,6 @@ class OrganizeCommand
 
             var details = organizationDetails ?? GetOrganizationDetails(path, fileName, fileExtension);
 
-            if (details.platform != null || details.author != null)
-            {
-                // TODO: Choose what to do with files from Facebook, WhatsApp, Google Drive, etc.
-                Console.WriteLine($"Skipping file from {details.platform}/{details.author}: '{path}'");
-                return;
-            }
-
             if (details.category != OrganizationCategory.ImagePhoto &&
                 details.category != OrganizationCategory.VideoCamera)
             {
@@ -222,10 +272,20 @@ class OrganizeCommand
                 return;
             }
 
+            if (details.platform != null || details.author != null)
+            {
+                // TODO: Choose what to do with files from Facebook, WhatsApp, Google Drive, etc.
+                Console.WriteLine($"Skipping file from {details.platform}/{details.author}: '{path}'");
+                return;
+            }
+
+            Debug.Assert(details.HasSecond);
             string prefix = details.category == OrganizationCategory.ImagePhoto ? "IMG_" : "VID_";
+            Span<char> fileExtensionLower = stackalloc char[fileExtension.Length];
+            fileExtension.ToLowerInvariant(fileExtensionLower);
             string newFileName = $"{prefix}{details.year:D4}{details.month:D2}{details.day:D2}_" +
                 $"{details.hour:D2}{details.minute:D2}{details.second:D2}{details.millisecond:D3}" +
-                $"{details.suffix}{fileExtension}";
+                $"{details.suffix}{fileExtensionLower}";
 
             // Camera/2020/IMG_20201231_235959999.jpg
             await MoveFileToDestinationDir(path, [DirCamera, GetDirectoryNameFromYear(details), newFileName]);
@@ -290,31 +350,35 @@ class OrganizeCommand
         // TODO: Detect files that are from Facebook, WhatsApp, Google Drive, etc., and fill in the plarform and author
         result.platform = result.author = null;
 
-        if (IsMatch(regexPrefixUndDateUndTimeSuffExt, fileName))
+        bool isDateUndTimeSuffExt = IsMatch(regexDateUndTimeSuffExt, fileName);
+        if (isDateUndTimeSuffExt || IsMatch(regexPrefixUndDateUndTimeSuffExt, fileName))
         {
             Debug.Assert(indexExt > 0 && ext.Length > 0);
 
-            int indexUnd = fileName.IndexOf('_');
-            Debug.Assert(indexUnd > 0);
-            ReadOnlySpan<char> prefix = fileName.Slice(0, indexUnd);
+            int prefixLen = isDateUndTimeSuffExt ? 0 : fileName.IndexOf('_') + 1;
+            ReadOnlySpan<char> prefix = prefixLen == 0 ? [] : fileName.Slice(0, prefixLen);
 
-            bool hasMillisecond = char.IsAsciiDigit(fileName[indexUnd + 16]);
-            ReadOnlySpan<char> dateStr = fileName.Slice(indexUnd + 1, 8);
-            ReadOnlySpan<char> timeStr = fileName.Slice(indexUnd + 10, hasMillisecond ? 9 : 6);
+            ReadOnlySpan<char> dateStr = fileName.Slice(prefixLen, 8);
+            Debug.Assert(fileName[prefixLen + 8] == '_');
+            bool hasMillisecond = char.IsAsciiDigit(fileName[prefixLen + 15]);
+            ReadOnlySpan<char> timeStr = fileName.Slice(prefixLen + 9, hasMillisecond ? 9 : 6);
 
-            int sufStart = indexUnd + 10 + timeStr.Length;
+            int sufStart = prefixLen + 9 + timeStr.Length;
             ReadOnlySpan<char> suffix = sufStart < indexExt ? fileName.Slice(sufStart, indexExt - sufStart) : [];
+            Debug.Assert(suffix.IsEmpty || !char.IsAsciiLetterOrDigit(suffix[0]));
 
             switch (ext)
             {
                 case "jpg":
-                    if (prefix.SequenceEqual("IMG") || prefix.SequenceEqual("PIC") || prefix.SequenceEqual("PXL"))
+                    if (prefix.IsEmpty || prefix.SequenceEqual("IMG_") || prefix.SequenceEqual("PIC_") ||
+                        prefix.SequenceEqual("PXL_"))
                     {
                         result.category = OrganizationCategory.ImagePhoto;
                     }
                     break;
                 case "mp4":
-                    if (prefix.SequenceEqual("IMG") || prefix.SequenceEqual("PXL") || prefix.SequenceEqual("VID"))
+                    if (prefix.IsEmpty || prefix.SequenceEqual("IMG_") || prefix.SequenceEqual("PXL_") ||
+                        prefix.SequenceEqual("VID_"))
                     {
                         result.category = OrganizationCategory.VideoCamera;
                     }
@@ -323,36 +387,91 @@ class OrganizeCommand
 
             if (result.category != OrganizationCategory.Unknown)
             {
-                result.year = short.Parse(dateStr[0..4]);                                       // 4 digits
-                result.month = byte.Parse(dateStr[4..6]);                                       // 2 digits
-                result.day = byte.Parse(dateStr[6..8]);                                         // 2 digits
-                result.hour = byte.Parse(timeStr[0..2]);                                        // 2 digits
-                result.minute = byte.Parse(timeStr[2..4]);                                      // 2 digits
-                result.second = byte.Parse(timeStr[4..6]);                                      // 2 digits
-                result.millisecond = hasMillisecond ? ushort.Parse(timeStr[6..9]) : (ushort)0;  // 3 digits
-                result.timeComponents = hasMillisecond ? TimeComponents.Millisecond : TimeComponents.Second;
+                GetDateTimeFromDigits(dateStr, timeStr, ref result);
+                result.suffix = suffix.IsEmpty ? null : new(suffix);
+            }
+        }
+        else if (IsMatch(regexPrefixUnd4DigitsSuffExt, fileName))
+        {
+            Debug.Assert(indexExt > 0 && ext.Length > 0);
 
-                result.suffix = suffix.Length > 0 ? new(suffix) : null;
+            int prefixLen = fileName.IndexOf('_') + 1;
+            ReadOnlySpan<char> prefix = fileName.Slice(0, prefixLen);
+
+            Debug.Assert(!char.IsAsciiDigit(fileName[prefixLen + 4]));
+            ReadOnlySpan<char> digitsStr = fileName.Slice(prefixLen, 4);
+
+            int sufStart = prefixLen + digitsStr.Length;
+            ReadOnlySpan<char> suffix = sufStart < indexExt ? fileName.Slice(sufStart, indexExt - sufStart) : [];
+            Debug.Assert(suffix.IsEmpty || !char.IsAsciiLetterOrDigit(suffix[0]));
+
+            switch (ext)
+            {
+                case "JPG":
+                    if (prefix.SequenceEqual("DSC_"))
+                    {
+                        result.category = OrganizationCategory.ImagePhoto;
+                    }
+                    break;
+            }
+
+            if (result.category != OrganizationCategory.Unknown)
+            {
+                TryGetDateTimeFromMetadata(path, ref result);
+                result.suffix = suffix.IsEmpty ? null : new(suffix);
             }
         }
 
-        if (!result.HasYear && result.category != OrganizationCategory.Unknown &&
-            MetadataUtils.TryGetDateTaken(path, out var dt))
+        // Use the suffix as milliseconds if appropriate
+        if (result.HasSecond && !result.HasMillisecond && result.suffix?.Length == 2 && result.suffix[0] == '_')
         {
-            result.year = (short)dt.Year;
-            result.month = (byte)dt.Month;
-            result.day = (byte)dt.Day;
-            result.hour = (byte)dt.Hour;
-            result.minute = (byte)dt.Minute;
-            result.second = (byte)dt.Second;
-            result.millisecond = (ushort)dt.Millisecond;
-            result.timeComponents =
-                result.millisecond != 0 ? TimeComponents.Millisecond :
-                result.second != 0 || result.minute != 0 || result.hour != 0 ? TimeComponents.Second :
-                TimeComponents.Day;
+            char suffixDigit = result.suffix[1];
+            if (suffixDigit > '0' && suffixDigit <= '9') // Excluding '0'
+            {
+                result.millisecond = (ushort)(suffixDigit - '0');
+                result.timeComponents = TimeComponents.Millisecond;
+                result.suffix = null;
+            }
         }
 
         return result;
+    }
+
+    static void GetDateTimeFromDigits(ReadOnlySpan<char> date, ReadOnlySpan<char> time, ref OrganizationDetails details)
+    {
+        Debug.Assert(date.Length == 8);
+        Debug.Assert(time.Length == 6 || time.Length == 9);
+
+        bool hasMillis = time.Length == 9;
+        details.year = short.Parse(date[0..4]);                                 // 4 digits
+        details.month = byte.Parse(date[4..6]);                                 // 2 digits
+        details.day = byte.Parse(date[6..8]);                                   // 2 digits
+        details.hour = byte.Parse(time[0..2]);                                  // 2 digits
+        details.minute = byte.Parse(time[2..4]);                                // 2 digits
+        details.second = byte.Parse(time[4..6]);                                // 2 digits
+        details.millisecond = hasMillis ? ushort.Parse(time[6..9]) : (ushort)0; // 3 digits
+        details.timeComponents = hasMillis ? TimeComponents.Millisecond : TimeComponents.Second;
+    }
+
+    static bool TryGetDateTimeFromMetadata(string path, ref OrganizationDetails details)
+    {
+        if (!MetadataUtils.TryGetDateTaken(path, out var dt))
+        {
+            return false;
+        }
+
+        details.year = (short)dt.Year;
+        details.month = (byte)dt.Month;
+        details.day = (byte)dt.Day;
+        details.hour = (byte)dt.Hour;
+        details.minute = (byte)dt.Minute;
+        details.second = (byte)dt.Second;
+        details.millisecond = (ushort)dt.Millisecond;
+        details.timeComponents =
+            details.millisecond != 0 ? TimeComponents.Millisecond :
+            details.second != 0 || details.minute != 0 || details.hour != 0 ? TimeComponents.Second :
+            TimeComponents.Day;
+        return true;
     }
 
     static string GetDirectoryNameFromYear(in OrganizationDetails details)
@@ -404,10 +523,10 @@ class OrganizeCommand
             return;
         }
 
+        string? dstDir = Path.GetDirectoryName(dstPath);
+        Debug.Assert(dstDir != null);
         if (!dryRun)
         {
-            string? dstDir = Path.GetDirectoryName(dstPath);
-            Debug.Assert(dstDir != null);
             Directory.CreateDirectory(dstDir);
             File.Move(srcPath, dstPath, false);
         }

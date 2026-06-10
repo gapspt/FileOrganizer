@@ -10,6 +10,58 @@ public enum FileCategory
 
 public static class FileTypeDetector
 {
+    static readonly HashSet<string> extensionsAudio = [
+        "aac",
+        "ac3", "eac3", "ec3",
+        "aiff", "aif", "aifc",
+        "amr",
+        "flac",
+        "m4a",
+        "mp1", "mp2", "mp3" ,
+        "ogg",
+        "opus",
+        "wav",
+        "wma",
+    ];
+    static readonly HashSet<string> extensionsImage = [
+        "bmp", "dib",
+        "cur",
+        "exr",
+        "gif",
+        "ico",
+        "jpg", "jpeg", "jpe", "jfif", "jif",
+        "pbm", "pgm", "ppm", "pnm",
+        "png",
+        "qoi",
+        "tga", "tpic",
+        "tif", "tiff",
+        "webp",
+    ];
+    static readonly HashSet<string> extensionsVideo = [
+        "3gp", "3g2",
+        "asf",
+        "avi",
+        "flv", "f4v",
+        "h264", "264", "avc",
+        "h265", "265", "hevc",
+        "mp4", "mpg", "mpeg", "m1v", "m2v", "m4v", "mpv",
+        "mov", "qt",
+        "mkv",
+        "ogv", "ogm",
+        "ts",
+        "vob",
+        "webm",
+        "wmv",
+    ];
+    static readonly HashSet<string> extensionsAll = [
+        .. extensionsAudio,
+        .. extensionsImage,
+        .. extensionsVideo,
+    ];
+
+    static readonly int extentionsMinLength = extensionsAll.Min(s => s.Length);
+    static readonly int extentionsMaxLength = extensionsAll.Max(s => s.Length);
+
     public static FileCategory DetectCategoryFromExtension(string path)
     {
         int index = path.LastIndexOf('.');
@@ -17,55 +69,19 @@ public static class FileTypeDetector
         {
             return FileCategory.Unknown;
         }
-        ReadOnlySpan<char> ext = path.AsSpan(index + 1);
-
-        return ext switch
+        ReadOnlySpan<char> extSpan = path.AsSpan(index + 1);
+        if (extSpan.Length < extentionsMinLength || extSpan.Length > extentionsMaxLength)
         {
-            "aac" or
-            "ac3" or "eac3" or "ec3" or
-            "aiff" or "aif" or "aifc" or
-            "amr" or
-            "flac" or
-            "m4a" or
-            "mp1" or "mp2" or "mp3" or
-            "ogg" or
-            "opus" or
-            "wav" or
-            "wma"
-            => FileCategory.Audio,
+            return FileCategory.Unknown;
+        }
 
-            "bmp" or "dib" or
-            "cur" or
-            "exr" or
-            "gif" or
-            "ico" or
-            "jpg" or "jpeg" or "jpe" or "jfif" or "jif" or
-            "pbm" or "pgm" or "ppm" or "pnm" or
-            "png" or
-            "qoi" or
-            "tga" or "tpic" or
-            "tif" or "tiff" or
-            "webp"
-            => FileCategory.Image,
-
-            "3gp" or "3g2" or
-            "asf" or
-            "avi" or
-            "flv" or "f4v" or
-            "h264" or "264" or "avc" or
-            "h265" or "265" or "hevc" or
-            "mp4" or "mpg" or "mpeg" or "m1v" or "m2v" or "m4v" or "mpv" or
-            "mov" or "qt" or
-            "mkv" or
-            "ogv" or "ogm" or
-            "ts" or
-            "vob" or
-            "webm" or
-            "wmv"
-            => FileCategory.Video,
-
-            _ => FileCategory.Unknown,
-        };
+        Span<char> extSpanLower = stackalloc char[extSpan.Length];
+        extSpan.ToLowerInvariant(extSpanLower);
+        string extLower = new(extSpan);
+        return !extensionsAll.Contains(extLower) ? FileCategory.Unknown :
+            extensionsAudio.Contains(extLower) ? FileCategory.Audio :
+            extensionsImage.Contains(extLower) ? FileCategory.Image :
+            FileCategory.Video;
     }
 
     public static async ValueTask<FileCategory> DetectCategoryFromContent(string path)
