@@ -16,6 +16,7 @@ class OrganizeCommand
         ImagePhoto,
         ImageScreenshot,
         ImageWallpaper,
+        TextHistory,
         VideoCamera,
         VideoScreenRecording,
     }
@@ -45,6 +46,7 @@ class OrganizeCommand
         public TimeComponents timeComponents;
         public string? platform;
         public string? author;
+        public string? prefix;
         public string? suffix;
 
         public readonly bool HasYear => timeComponents >= TimeComponents.Year;
@@ -59,6 +61,7 @@ class OrganizeCommand
     public const string DirAudioRecordings = "AudioRecordings";
     public const string DirCamera = "Camera";
     public const string DirDocuments = "Documents";
+    public const string DirHistory = "History";
     public const string DirMemes = "Memes";
     public const string DirMusic = "Music";
     public const string DirRingtones = "Ringtones";
@@ -79,6 +82,13 @@ class OrganizeCommand
     static readonly Regex regexPrefixUndDateUndTimeSuffExt = new(@"\A" +
         @"[a-zA-Z][a-zA-Z0-9]*_" +
         @"(19|20)\d{2}((0[1-9])|(1[0-2]))(([0-2][0-9])|(3[01]))_" +
+        @"(([01][0-9])|(2[0-3]))[0-5][0-9][0-5][0-9](\d{3})?" +
+        @"([_.~-][a-zA-Z0-9_.-]+)?" +
+        @"\.[a-zA-Z0-9]+" +
+        @"\z");
+    static readonly Regex regexPrefixHyphDateTimeSuffExt = new(@"\A" +
+        @"[a-zA-Z][a-zA-Z0-9]*-" +
+        @"(19|20)\d{2}((0[1-9])|(1[0-2]))(([0-2][0-9])|(3[01]))" +
         @"(([01][0-9])|(2[0-3]))[0-5][0-9][0-5][0-9](\d{3})?" +
         @"([_.~-][a-zA-Z0-9_.-]+)?" +
         @"\.[a-zA-Z0-9]+" +
@@ -126,6 +136,7 @@ class OrganizeCommand
                     case DirAudioRecordings:
                     case DirCamera:
                     case DirDocuments:
+                    case DirHistory:
                     case DirMemes:
                     case DirMusic:
                     case DirRingtones:
@@ -169,6 +180,7 @@ class OrganizeCommand
             return trimmedPathComponents[0] switch
             {
                 DirCamera => ProcessCameraFile(path, relativePathComponents),
+                DirHistory => ProcessHistoryFile(path, relativePathComponents),
 
                 // Not implemented yet:
                 DirAudioRecordings or
@@ -189,6 +201,8 @@ class OrganizeCommand
         {
             OrganizationCategory.ImagePhoto or OrganizationCategory.VideoCamera
                 => ProcessCameraFile(path, relativePathComponents, details),
+            OrganizationCategory.TextHistory
+                => ProcessHistoryFile(path, relativePathComponents, details),
 
             // Not implemented yet:
             OrganizationCategory.AudioMusic or
@@ -296,6 +310,73 @@ class OrganizeCommand
         }
     }
 
+    async ValueTask ProcessHistoryFile(
+        string path, string[] relativePathComponents, OrganizationDetails? organizationDetails = null)
+    {
+        try
+        {
+            GetFileNameAndExtension(relativePathComponents, out string fileName, out ReadOnlySpan<char> fileExtension);
+
+            if (fileExtension.Length < 1)
+            {
+                Program.WriteLineDebug($"Skipping unknown file type: '{path}'");
+                return;
+            }
+
+            var trimmedPathComponents = IgnoreTopDirectories(relativePathComponents, [DirHistory, DirUnknown]);
+
+            var details = organizationDetails ?? GetOrganizationDetails(path, fileName, fileExtension);
+
+            if (details.category != OrganizationCategory.TextHistory)
+            {
+                Program.WriteLineDebug($"Skipping unknown file type: '{path}'");
+                return;
+            }
+
+            if (details.platform != null || details.author != null)
+            {
+                Console.WriteLine($"Skipping file from {details.platform}/{details.author}: '{path}'");
+                return;
+            }
+
+            bool customLocation = false;
+            switch (details.prefix)
+            {
+                case "calls" or "sms":
+                    if (trimmedPathComponents.Length > 2 ||
+                        (trimmedPathComponents.Length == 2 && trimmedPathComponents[0] != "SMSBackupRestore"))
+                    {
+                        customLocation = true;
+                        break;
+                    }
+
+                    if (details.prefix == "calls")
+                    {
+                        // TODO: Define the destination path
+                        FileMerger.MergeCallLogs(path, );
+                    }
+                    else
+                    {
+                        // TODO: Define the destination path
+                        FileMerger.MergeSmsLogs(path, );
+                    }
+                    break;
+                default:
+                    Program.WriteLineDebug($"Skipping unknown file type: '{path}'");
+                    break;
+            }
+            if (customLocation)
+            {
+                Program.WriteLineDebug($"Skipping file in custom location: '{path}'");
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error organizing file '{path}': {ex.Message}");
+        }
+    }
+
     ValueTask ProcessUnknownFile(string path)
     {
         Program.WriteLineDebug($"Skipping unknown file category: '{path}'");
@@ -388,6 +469,7 @@ class OrganizeCommand
             if (result.category != OrganizationCategory.Unknown)
             {
                 GetDateTimeFromDigits(dateStr, timeStr, ref result);
+                result.prefix = prefix.IsEmpty ? null : new(prefix);
                 result.suffix = suffix.IsEmpty ? null : new(suffix);
             }
         }
@@ -418,6 +500,39 @@ class OrganizeCommand
             if (result.category != OrganizationCategory.Unknown)
             {
                 TryGetDateTimeFromMetadata(path, ref result);
+                result.prefix = prefix.IsEmpty ? null : new(prefix);
+                result.suffix = suffix.IsEmpty ? null : new(suffix);
+            }
+        }
+        else if (IsMatch(regexPrefixHyphDateTimeSuffExt, fileName))
+        {
+            Debug.Assert(indexExt > 0 && ext.Length > 0);
+
+            int prefixLen = fileName.IndexOf('-') + 1;
+            ReadOnlySpan<char> prefix = prefixLen == 0 ? [] : fileName.Slice(0, prefixLen);
+
+            ReadOnlySpan<char> dateStr = fileName.Slice(prefixLen, 8);
+            bool hasMillisecond = char.IsAsciiDigit(fileName[prefixLen + 14]);
+            ReadOnlySpan<char> timeStr = fileName.Slice(prefixLen + 8, hasMillisecond ? 9 : 6);
+
+            int sufStart = prefixLen + 8 + timeStr.Length;
+            ReadOnlySpan<char> suffix = sufStart < indexExt ? fileName.Slice(sufStart, indexExt - sufStart) : [];
+            Debug.Assert(suffix.IsEmpty || !char.IsAsciiLetterOrDigit(suffix[0]));
+
+            switch (ext)
+            {
+                case "xml":
+                    if ((prefix.SequenceEqual("calls-") || prefix.SequenceEqual("sms-")) && suffix.IsEmpty)
+                    {
+                        result.category = OrganizationCategory.TextHistory;
+                    }
+                    break;
+            }
+
+            if (result.category != OrganizationCategory.Unknown)
+            {
+                GetDateTimeFromDigits(dateStr, timeStr, ref result);
+                result.prefix = prefix.IsEmpty ? null : new(prefix);
                 result.suffix = suffix.IsEmpty ? null : new(suffix);
             }
         }

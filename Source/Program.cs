@@ -17,6 +17,9 @@ static class Program
     static async Task<int> Main(string[] args)
     {
 #if DEBUG
+        //args = ["organize", "-dry", "-r", "1000", @"D:\To Backup\Fotos", "-o", @"D:\To Backup\Fotos processed"];
+        //args = ["similar", "-dry", "-r", "1000", "-os", "ck", "-w", "8", "-d", "15", @"D:\To Backup\Fotos", "-o", @"D:\To Backup\Fotos processed"];
+        //args = ["organize", "-dry", "-r", "1000", @"H:\Photos", "-o", @"H:\Photos_Processed"];
         dryRun = true;
 #endif
 

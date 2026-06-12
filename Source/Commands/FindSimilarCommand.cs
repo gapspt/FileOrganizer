@@ -24,6 +24,7 @@ class FindSimilarCommand
     // Note: Using a tuple (string?, List<string>?) below, so that in most cases where one size maps to only one file,
     // we don't need to allocate a new list just to hold that single file
     readonly Dictionary<long, (string?, List<string>?)> audioFilesBySize = new();
+    readonly Dictionary<long, (string?, List<string>?)> textFilesBySize = new();
     readonly Dictionary<long, (string?, List<string>?)> videoFilesBySize = new();
 
     readonly Dictionary<string, List<string>> similarFilesClusters = new();
@@ -100,6 +101,9 @@ class FindSimilarCommand
                 break;
             case FileCategory.Image:
                 await ProcessImageFile(path);
+                break;
+            case FileCategory.Text:
+                await ProcessGenericFile(path, textFilesBySize);
                 break;
             case FileCategory.Video:
                 await ProcessGenericFile(path, videoFilesBySize);
