@@ -248,7 +248,7 @@ static class Program
     }
 
     [Conditional("DEBUG")]
-    internal static void WriteLineDebug(string message)
+    internal static void WriteLineDebug(object? message)
     {
         Console.WriteLine(message);
     }

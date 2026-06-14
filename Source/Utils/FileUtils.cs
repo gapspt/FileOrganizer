@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography;
+﻿using System.Diagnostics;
+using System.Security.Cryptography;
 
 namespace FileOrganizer;
 
@@ -117,6 +118,26 @@ public static class FileUtils
         }
     }
 
+    public static string RandomNonExistentPath(ReadOnlySpan<char> directoryPath, int nameSize)
+    {
+        nameSize--; // We will add one initial character '~'
+
+        if (nameSize < 5) nameSize = 4; // Ensure enough randomness
+
+        string tempPath;
+        while (true)
+        {
+            string tempName = RandomNumberGenerator.GetString("abcdefghijklmnopqrstuvwxyz", nameSize);
+            tempPath = Path.Join(directoryPath, $"~{tempName}");
+            if (!Path.Exists(tempPath))
+            {
+                break;
+            }
+        }
+        Debug.Assert(!Path.Exists(tempPath));
+        return tempPath;
+    }
+
     /// <summary>
     /// Deletes the file at <paramref name="toDelete"/> only if it is not the same file as
     /// <paramref name="toKeep"/>. Returns true if the file was deleted; or false if it was not deleted, when it is
@@ -137,18 +158,9 @@ public static class FileUtils
         // point to the same file, deleting the file would be catastrophic! To prevent that, we instead
         // rename the file first, then verify the other file is still there, and only then we delete it.
 
-        string toDeleteFileName = Path.GetFileName(toDelete);
-        string? toDeleteDirPath = Path.GetDirectoryName(toDelete);
-        string tempPath;
-        for (int len = toDeleteFileName.Length; true; len++)
-        {
-            string tempName = RandomNumberGenerator.GetString("abcdefghijklmnopqrstuvwxyz", len);
-            tempPath = Path.Join(toDeleteDirPath, tempName);
-            if (!Path.Exists(tempPath))
-            {
-                break;
-            }
-        }
+        ReadOnlySpan<char> toDeleteFileName = Path.GetFileName(toDelete);
+        ReadOnlySpan<char> toDeleteDirPath = Path.GetDirectoryName(toDelete);
+        string tempPath = RandomNonExistentPath(toDeleteDirPath, toDeleteFileName.Length);
 
         if (!File.Exists(toDelete) || !File.Exists(toKeep))
         {
