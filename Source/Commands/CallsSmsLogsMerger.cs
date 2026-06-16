@@ -491,15 +491,103 @@ public static class CallsSmsLogsMerger
         var attributes = el.Attributes();
 
         int toProcess = attributes.Count();
+        bool add_id = false;
+        bool add_sub_id = false;
         foreach (var merger in attrValidators)
         {
             XAttribute? attr = el.Attribute(merger.AttributeName);
+
+            if (el.Document!.Root!.Attribute("backup_set")!.Value != MergedBackupSetName)
+            {
+                if (el.Name.LocalName == "sms")
+                {
+                    if (merger.AttributeName == "sub_id")
+                    {
+                        long date = long.Parse(el.Document!.Root!.Attribute("backup_date")!.Value);
+                        if (date < 1500000000000L)
+                        {
+                            if (attr == null)
+                            {
+                                add_sub_id = true;
+                                continue;
+                            }
+                            throw new InvalidProgramException("Ups...");
+                        }
+                    }
+                }
+                else if (el.Name.LocalName == "mms")
+                {
+                    if (merger.AttributeName == "sub_id")
+                    {
+                        long date = long.Parse(el.Document!.Root!.Attribute("backup_date")!.Value);
+                        if (date < 1449309875627L)
+                        {
+                            if (attr == null)
+                            {
+                                add_sub_id = true;
+                                continue;
+                            }
+                            throw new InvalidProgramException("Ups...");
+                        }
+                    }
+                    else if (merger.AttributeName == "_id")
+                    {
+                        long date = long.Parse(el.Document!.Root!.Attribute("backup_date")!.Value);
+                        if (date < 1500000000000L)
+                        {
+                            if (attr == null)
+                            {
+                                add_id = true;
+                                continue;
+                            }
+                            throw new InvalidProgramException("Ups...");
+                        }
+                    }
+                }
+                else if (el.Name.LocalName == "part")
+                {
+                    if (merger.AttributeName == "sub_id")
+                    {
+                        long date = long.Parse(el.Document!.Root!.Attribute("backup_date")!.Value);
+                        if (date < 1698000000000L)
+                        {
+                            if (attr == null)
+                            {
+                                add_sub_id = true;
+                                continue;
+                            }
+                            throw new InvalidProgramException("Ups...");
+                        }
+                    }
+                }
+            }
+
             merger.ValidateValue(attr);
             if (attr != null)
             {
                 toProcess--;
             }
         }
+
+        if (add_sub_id)
+        {
+            if (el.Attribute("sub_id") != null)
+            {
+                Debug.Assert(false);
+                throw new InvalidProgramException("Developer error");
+            }
+            el.SetAttributeValue("sub_id", "-1");
+        }
+        if (add_id)
+        {
+            if (el.Attribute("_id") != null)
+            {
+                Debug.Assert(false);
+                throw new InvalidProgramException("Developer error");
+            }
+            el.SetAttributeValue("_id", "null");
+        }
+
         if (toProcess != 0)
         {
             string notProcessed = string.Join(", ", attributes
